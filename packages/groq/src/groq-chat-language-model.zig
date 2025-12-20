@@ -444,7 +444,9 @@ test "GroqChatLanguageModel multiple instances with different models" {
 }
 
 test "GroqChatLanguageModel buildRequestBody with simple prompt" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
@@ -472,14 +474,6 @@ test "GroqChatLanguageModel buildRequestBody with simple prompt" {
     };
 
     const request_body = try model.buildRequestBody(allocator, call_options);
-    defer {
-        // Note: Using arena allocator, so manual deinit not needed
-        // but we keep this structure for when we test with different allocators
-        var mutable_body = request_body;
-        if (mutable_body == .object) {
-            mutable_body.object.deinit();
-        }
-    }
 
     try std.testing.expect(request_body == .object);
     const model_val = request_body.object.get("model");
@@ -488,7 +482,9 @@ test "GroqChatLanguageModel buildRequestBody with simple prompt" {
 }
 
 test "GroqChatLanguageModel buildRequestBody with max_tokens" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
@@ -516,14 +512,6 @@ test "GroqChatLanguageModel buildRequestBody with max_tokens" {
     };
 
     const request_body = try model.buildRequestBody(allocator, call_options);
-    defer {
-        // Note: Using arena allocator, so manual deinit not needed
-        // but we keep this structure for when we test with different allocators
-        var mutable_body = request_body;
-        if (mutable_body == .object) {
-            mutable_body.object.deinit();
-        }
-    }
 
     try std.testing.expect(request_body == .object);
     const max_tokens = request_body.object.get("max_tokens");
@@ -532,7 +520,9 @@ test "GroqChatLanguageModel buildRequestBody with max_tokens" {
 }
 
 test "GroqChatLanguageModel buildRequestBody with temperature and top_p" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
@@ -560,28 +550,22 @@ test "GroqChatLanguageModel buildRequestBody with temperature and top_p" {
     };
 
     const request_body = try model.buildRequestBody(allocator, call_options);
-    defer {
-        // Note: Using arena allocator, so manual deinit not needed
-        // but we keep this structure for when we test with different allocators
-        var mutable_body = request_body;
-        if (mutable_body == .object) {
-            mutable_body.object.deinit();
-        }
-    }
 
     try std.testing.expect(request_body == .object);
 
     const temperature = request_body.object.get("temperature");
     try std.testing.expect(temperature != null);
-    try std.testing.expectEqual(@as(f64, 0.7), temperature.?.float);
+    try std.testing.expectApproxEqRel(@as(f64, 0.7), temperature.?.float, 0.0001);
 
     const top_p = request_body.object.get("top_p");
     try std.testing.expect(top_p != null);
-    try std.testing.expectEqual(@as(f64, 0.9), top_p.?.float);
+    try std.testing.expectApproxEqRel(@as(f64, 0.9), top_p.?.float, 0.0001);
 }
 
 test "GroqChatLanguageModel buildRequestBody with seed" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
@@ -609,14 +593,6 @@ test "GroqChatLanguageModel buildRequestBody with seed" {
     };
 
     const request_body = try model.buildRequestBody(allocator, call_options);
-    defer {
-        // Note: Using arena allocator, so manual deinit not needed
-        // but we keep this structure for when we test with different allocators
-        var mutable_body = request_body;
-        if (mutable_body == .object) {
-            mutable_body.object.deinit();
-        }
-    }
 
     try std.testing.expect(request_body == .object);
     const seed = request_body.object.get("seed");
@@ -625,7 +601,9 @@ test "GroqChatLanguageModel buildRequestBody with seed" {
 }
 
 test "GroqChatLanguageModel buildRequestBody with stop sequences" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
@@ -655,14 +633,6 @@ test "GroqChatLanguageModel buildRequestBody with stop sequences" {
     };
 
     const request_body = try model.buildRequestBody(allocator, call_options);
-    defer {
-        // Note: Using arena allocator, so manual deinit not needed
-        // but we keep this structure for when we test with different allocators
-        var mutable_body = request_body;
-        if (mutable_body == .object) {
-            mutable_body.object.deinit();
-        }
-    }
 
     try std.testing.expect(request_body == .object);
     const stop = request_body.object.get("stop");
@@ -671,7 +641,9 @@ test "GroqChatLanguageModel buildRequestBody with stop sequences" {
 }
 
 test "GroqChatLanguageModel buildRequestBody with system message" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
@@ -703,14 +675,6 @@ test "GroqChatLanguageModel buildRequestBody with system message" {
     };
 
     const request_body = try model.buildRequestBody(allocator, call_options);
-    defer {
-        // Note: Using arena allocator, so manual deinit not needed
-        // but we keep this structure for when we test with different allocators
-        var mutable_body = request_body;
-        if (mutable_body == .object) {
-            mutable_body.object.deinit();
-        }
-    }
 
     try std.testing.expect(request_body == .object);
     const messages = request_body.object.get("messages");
