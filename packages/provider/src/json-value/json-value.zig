@@ -87,7 +87,7 @@ pub const JsonValue = union(enum) {
 
     /// Stringify the JSON value.
     pub fn stringify(self: Self, allocator: std.mem.Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(allocator);
+        var list = std.array_list.Managed(u8).init(allocator);
         errdefer list.deinit();
         try self.stringifyTo(list.writer());
         return list.toOwnedSlice();
@@ -313,7 +313,7 @@ test "JsonValue parse and stringify" {
 }
 
 test "JsonValue null and primitives" {
-    try std.testing.expect(JsonValue.null.isNull());
+    try std.testing.expect(JsonValue.null == .null);
     try std.testing.expectEqual(true, (JsonValue{ .bool = true }).asBool().?);
     try std.testing.expectEqual(@as(i64, 123), (JsonValue{ .integer = 123 }).asInteger().?);
 }

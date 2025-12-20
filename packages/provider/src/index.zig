@@ -5,7 +5,7 @@ pub const json_value = @import("json-value/index.zig");
 pub const JsonValue = json_value.JsonValue;
 pub const JsonObject = json_value.JsonObject;
 pub const JsonArray = json_value.JsonArray;
-pub const isJson = json_value.isJson;
+pub const isJsonValue = json_value.isJsonValue;
 
 // Error Types
 pub const errors = @import("errors/index.zig");

@@ -65,7 +65,7 @@ pub const SharedV3Warning = union(enum) {
 
     /// Get a human-readable description of the warning
     pub fn describe(self: SharedV3Warning, allocator: std.mem.Allocator) ![]const u8 {
-        var list = std.ArrayList(u8).init(allocator);
+        var list = std.array_list.Managed(u8).init(allocator);
         errdefer list.deinit();
         const writer = list.writer();
 
