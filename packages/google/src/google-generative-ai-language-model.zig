@@ -79,10 +79,10 @@ pub const GoogleGenerativeAILanguageModel = struct {
         };
 
         // Get headers
-        var headers = std.StringHashMap([]const u8).init(request_allocator);
-        if (self.config.headers_fn) |headers_fn| {
-            headers = headers_fn(&self.config);
-        }
+        const headers = if (self.config.headers_fn) |headers_fn|
+            headers_fn(&self.config)
+        else
+            std.StringHashMap([]const u8).init(request_allocator);
 
         // Serialize request body
         var body_buffer = std.ArrayList(u8).init(request_allocator);
@@ -91,7 +91,7 @@ pub const GoogleGenerativeAILanguageModel = struct {
             return;
         };
 
-        // Make HTTP request (simplified - actual implementation would use http client)
+        // TODO: Make HTTP request with url, headers, and body_buffer.items
         _ = url;
         _ = headers;
         _ = body_buffer.items;
@@ -333,7 +333,6 @@ pub const GoogleGenerativeAILanguageModel = struct {
         ctx: ?*anyopaque,
     ) void {
         _ = self;
-        _ = allocator;
         callback(ctx, .{ .success = std.StringHashMap([]const []const u8).init(allocator) });
     }
 

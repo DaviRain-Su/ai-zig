@@ -165,11 +165,12 @@ pub const GoogleGenerativeAIImageModel = struct {
         };
 
         // Get headers
-        var headers = std.StringHashMap([]const u8).init(request_allocator);
-        if (self.config.headers_fn) |headers_fn| {
-            headers = headers_fn(&self.config);
-        }
+        const headers = if (self.config.headers_fn) |headers_fn|
+            headers_fn(&self.config)
+        else
+            std.StringHashMap([]const u8).init(request_allocator);
 
+        // TODO: Make HTTP request with url and headers
         _ = url;
         _ = headers;
 
@@ -215,18 +216,18 @@ test "GoogleGenerativeAIImageModel init" {
 
     try std.testing.expectEqualStrings("imagen-4.0-generate-001", model.getModelId());
     try std.testing.expectEqualStrings("google.generative-ai", model.getProvider());
-    try std.testing.expectEqual(@as(u32, 4), model.getMaxImagesPerCall());
+    try std.testing.expectEqual(@as(u32, 4), GoogleGenerativeAIImageModel.default_max_images_per_call);
 }
 
 test "GoogleGenerativeAIImageModel custom max images" {
     const allocator = std.testing.allocator;
 
-    var model = GoogleGenerativeAIImageModel.init(
+    const model = GoogleGenerativeAIImageModel.init(
         allocator,
         "imagen-4.0-generate-001",
         .{ .max_images_per_call = 8 },
         .{},
     );
 
-    try std.testing.expectEqual(@as(u32, 8), model.getMaxImagesPerCall());
+    try std.testing.expectEqual(@as(u32, 8), model.settings.max_images_per_call.?);
 }

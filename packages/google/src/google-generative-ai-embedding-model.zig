@@ -208,11 +208,12 @@ pub const GoogleGenerativeAIEmbeddingModel = struct {
         }
 
         // Get headers
-        var headers = std.StringHashMap([]const u8).init(request_allocator);
-        if (self.config.headers_fn) |headers_fn| {
-            headers = headers_fn(&self.config);
-        }
+        const headers = if (self.config.headers_fn) |headers_fn|
+            headers_fn(&self.config)
+        else
+            std.StringHashMap([]const u8).init(request_allocator);
 
+        // TODO: Make HTTP request with url and headers
         _ = url;
         _ = headers;
 
@@ -266,5 +267,5 @@ test "GoogleGenerativeAIEmbeddingModel init" {
 
     try std.testing.expectEqualStrings("text-embedding-004", model.getModelId());
     try std.testing.expectEqualStrings("google.generative-ai", model.getProvider());
-    try std.testing.expectEqual(@as(usize, 2048), model.getMaxEmbeddingsPerCall());
+    try std.testing.expectEqual(@as(usize, 2048), GoogleGenerativeAIEmbeddingModel.max_embeddings_per_call);
 }

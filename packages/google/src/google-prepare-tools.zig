@@ -1,6 +1,7 @@
 const std = @import("std");
 const lm = @import("provider").language_model;
 const shared = @import("provider").shared;
+const json_value = @import("provider").json_value;
 const options = @import("google-generative-ai-options.zig");
 
 /// Tool configuration for Google API
@@ -32,7 +33,7 @@ pub const ToolConfig = struct {
 pub const FunctionDeclaration = struct {
     name: []const u8,
     description: []const u8,
-    parameters: std.json.Value,
+    parameters: json_value.JsonValue,
 };
 
 /// Provider tool types
@@ -126,8 +127,9 @@ pub fn prepareTools(
 
     if (has_function_tools and has_provider_tools) {
         try warnings.append(.{
-            .type = .unsupported,
-            .message = "combination of function and provider-defined tools",
+            .unsupported = .{
+                .feature = "combination of function and provider-defined tools",
+            },
         });
     }
 
@@ -157,8 +159,9 @@ pub fn prepareTools(
                             try provider_tools.append(.{ .enterprise_web_search = .{} });
                         } else {
                             try warnings.append(.{
-                                .type = .unsupported,
-                                .message = "provider-defined tool google.enterprise_web_search requires Gemini 2.0 or newer",
+                                .unsupported = .{
+                                    .feature = "provider-defined tool google.enterprise_web_search requires Gemini 2.0 or newer",
+                                },
                             });
                         }
                     } else if (std.mem.eql(u8, prov.name, "google.url_context")) {
@@ -166,8 +169,9 @@ pub fn prepareTools(
                             try provider_tools.append(.{ .url_context = .{} });
                         } else {
                             try warnings.append(.{
-                                .type = .unsupported,
-                                .message = "provider-defined tool google.url_context requires Gemini 2.0 or newer",
+                                .unsupported = .{
+                                    .feature = "provider-defined tool google.url_context requires Gemini 2.0 or newer",
+                                },
                             });
                         }
                     } else if (std.mem.eql(u8, prov.name, "google.code_execution")) {
@@ -175,8 +179,9 @@ pub fn prepareTools(
                             try provider_tools.append(.{ .code_execution = .{} });
                         } else {
                             try warnings.append(.{
-                                .type = .unsupported,
-                                .message = "provider-defined tool google.code_execution requires Gemini 2.0 or newer",
+                                .unsupported = .{
+                                    .feature = "provider-defined tool google.code_execution requires Gemini 2.0 or newer",
+                                },
                             });
                         }
                     } else if (std.mem.eql(u8, prov.name, "google.file_search")) {
@@ -184,8 +189,9 @@ pub fn prepareTools(
                             try provider_tools.append(.{ .file_search = .{} });
                         } else {
                             try warnings.append(.{
-                                .type = .unsupported,
-                                .message = "provider-defined tool google.file_search requires Gemini 2.5 models",
+                                .unsupported = .{
+                                    .feature = "provider-defined tool google.file_search requires Gemini 2.5 models",
+                                },
                             });
                         }
                     } else if (std.mem.eql(u8, prov.name, "google.google_maps")) {
@@ -193,18 +199,21 @@ pub fn prepareTools(
                             try provider_tools.append(.{ .google_maps = .{} });
                         } else {
                             try warnings.append(.{
-                                .type = .unsupported,
-                                .message = "provider-defined tool google.google_maps requires Gemini 2.0 or newer",
+                                .unsupported = .{
+                                    .feature = "provider-defined tool google.google_maps requires Gemini 2.0 or newer",
+                                },
                             });
                         }
                     } else {
                         try warnings.append(.{
-                            .type = .unsupported,
-                            .message = try std.fmt.allocPrint(
-                                allocator,
-                                "provider-defined tool {s} is not supported",
-                                .{prov.name},
-                            ),
+                            .unsupported = .{
+                                .feature = try std.fmt.allocPrint(
+                                    allocator,
+                                    "provider-defined tool {s}",
+                                    .{prov.name},
+                                ),
+                                .details = "not supported",
+                            },
                         });
                     }
                 },
@@ -237,8 +246,9 @@ pub fn prepareTools(
             },
             .provider => {
                 try warnings.append(.{
-                    .type = .unsupported,
-                    .message = "provider tool in function tools context",
+                    .unsupported = .{
+                        .feature = "provider tool in function tools context",
+                    },
                 });
             },
         }
@@ -301,9 +311,9 @@ test "prepareTools with no tools" {
 
 test "prepareTools with function tool" {
     const allocator = std.testing.allocator;
-    const json_value = @import("provider").json_value;
+    const jv = @import("provider").json_value;
 
-    const schema = json_value.JsonValue{ .object = json_value.JsonObject.init(allocator) };
+    const schema = jv.JsonValue{ .object = jv.JsonObject.init(allocator) };
 
     const tools = [_]lm.LanguageModelV3CallOptions.Tool{
         .{

@@ -1,6 +1,7 @@
 const std = @import("std");
 const lm = @import("provider").language_model;
 const prompt_types = @import("google-generative-ai-prompt.zig");
+const UserPart = @import("provider").language_model.language_model_v3_prompt.UserPart;
 
 /// Options for converting messages
 pub const ConvertOptions = struct {
@@ -49,10 +50,10 @@ pub fn convertToGoogleGenerativeAIMessages(
                         },
                         .file => |f| {
                             // Determine media type
-                            const media_type = if (f.media_type) |mt|
-                                (if (std.mem.eql(u8, mt, "image/*")) "image/jpeg" else mt)
+                            const media_type = if (std.mem.eql(u8, f.media_type, "image/*"))
+                                "image/jpeg"
                             else
-                                "application/octet-stream";
+                                f.media_type;
 
                             // Check if it's a URL or base64 data
                             switch (f.data) {
@@ -114,12 +115,12 @@ pub fn convertToGoogleGenerativeAIMessages(
                             }
                         },
                         .tool_call => |tc| {
-                            // Parse the input JSON
-                            const parsed = try std.json.parseFromSlice(std.json.Value, allocator, tc.input, .{});
+                            // Convert JsonValue to std.json.Value
+                            const std_json_args = try tc.input.toStdJson(allocator);
                             try parts.append(.{
                                 .function_call = .{
                                     .name = tc.tool_name,
-                                    .args = parsed.value,
+                                    .args = std_json_args,
                                 },
                             });
                         },
@@ -128,7 +129,7 @@ pub fn convertToGoogleGenerativeAIMessages(
                                 .base64 => |data| {
                                     try parts.append(.{
                                         .inline_data = .{
-                                            .mime_type = f.media_type orelse "application/octet-stream",
+                                            .mime_type = f.media_type,
                                             .data = data,
                                         },
                                     });
@@ -254,7 +255,7 @@ test "convertToGoogleGenerativeAIMessages system message" {
 test "convertToGoogleGenerativeAIMessages user message" {
     const allocator = std.testing.allocator;
 
-    var user_parts: [1]lm.LanguageModelV3Content.UserContent = .{
+    var user_parts: [1]UserPart = .{
         .{ .text = .{ .text = "Hello!" } },
     };
 
