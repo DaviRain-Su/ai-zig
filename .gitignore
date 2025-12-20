@@ -1,0 +1,30 @@
+# OS files
+.DS_Store
+
+# Environment
+.env
+.envrc
+
+# Zig build artifacts
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Build output
+*.o
+*.a
+*.so
+*.dylib
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test artifacts
+test-results/
+
+# Logs
+*.log

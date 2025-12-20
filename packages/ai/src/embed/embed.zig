@@ -1,0 +1,258 @@
+const std = @import("std");
+const provider_types = @import("../../../provider/src/embedding-model/v3/index.zig");
+
+const EmbeddingModelV3 = provider_types.EmbeddingModelV3;
+
+/// Token usage for embedding operations
+pub const EmbeddingUsage = struct {
+    tokens: ?u64 = null,
+};
+
+/// Single embedding result
+pub const Embedding = struct {
+    /// The embedding vector
+    values: []const f64,
+
+    /// Index in the input array (for embed_many)
+    index: ?usize = null,
+};
+
+/// Response metadata for embedding
+pub const EmbeddingResponseMetadata = struct {
+    id: ?[]const u8 = null,
+    model_id: []const u8,
+    timestamp: ?i64 = null,
+    headers: ?std.StringHashMap([]const u8) = null,
+};
+
+/// Result of embed (single value)
+pub const EmbedResult = struct {
+    /// The generated embedding
+    embedding: Embedding,
+
+    /// Token usage
+    usage: EmbeddingUsage,
+
+    /// Response metadata
+    response: EmbeddingResponseMetadata,
+
+    /// Warnings from the model
+    warnings: ?[]const []const u8 = null,
+
+    pub fn deinit(self: *EmbedResult, allocator: std.mem.Allocator) void {
+        _ = self;
+        _ = allocator;
+        // Arena allocator handles cleanup
+    }
+};
+
+/// Result of embedMany (multiple values)
+pub const EmbedManyResult = struct {
+    /// The generated embeddings
+    embeddings: []const Embedding,
+
+    /// Token usage
+    usage: EmbeddingUsage,
+
+    /// Response metadata
+    response: EmbeddingResponseMetadata,
+
+    /// Warnings from the model
+    warnings: ?[]const []const u8 = null,
+
+    pub fn deinit(self: *EmbedManyResult, allocator: std.mem.Allocator) void {
+        _ = self;
+        _ = allocator;
+        // Arena allocator handles cleanup
+    }
+};
+
+/// Options for embed
+pub const EmbedOptions = struct {
+    /// The embedding model to use
+    model: *EmbeddingModelV3,
+
+    /// The value to embed
+    value: []const u8,
+
+    /// Maximum retries on failure
+    max_retries: u32 = 2,
+
+    /// Additional headers
+    headers: ?std.StringHashMap([]const u8) = null,
+};
+
+/// Options for embedMany
+pub const EmbedManyOptions = struct {
+    /// The embedding model to use
+    model: *EmbeddingModelV3,
+
+    /// The values to embed
+    values: []const []const u8,
+
+    /// Maximum retries on failure
+    max_retries: u32 = 2,
+
+    /// Additional headers
+    headers: ?std.StringHashMap([]const u8) = null,
+};
+
+/// Error types for embedding
+pub const EmbedError = error{
+    ModelError,
+    NetworkError,
+    InvalidInput,
+    TooManyValues,
+    Cancelled,
+    OutOfMemory,
+};
+
+/// Generate an embedding for a single value
+pub fn embed(
+    allocator: std.mem.Allocator,
+    options: EmbedOptions,
+) EmbedError!EmbedResult {
+    _ = allocator;
+
+    // Validate input
+    if (options.value.len == 0) {
+        return EmbedError.InvalidInput;
+    }
+
+    // TODO: Call model.doEmbed
+    // For now, return a placeholder result
+
+    return EmbedResult{
+        .embedding = .{
+            .values = &[_]f64{},
+        },
+        .usage = .{},
+        .response = .{
+            .model_id = "placeholder",
+        },
+        .warnings = null,
+    };
+}
+
+/// Generate embeddings for multiple values
+pub fn embedMany(
+    allocator: std.mem.Allocator,
+    options: EmbedManyOptions,
+) EmbedError!EmbedManyResult {
+    _ = allocator;
+
+    // Validate input
+    if (options.values.len == 0) {
+        return EmbedError.InvalidInput;
+    }
+
+    // TODO: Call model.doEmbed with batching
+    // For now, return a placeholder result
+
+    return EmbedManyResult{
+        .embeddings = &[_]Embedding{},
+        .usage = .{},
+        .response = .{
+            .model_id = "placeholder",
+        },
+        .warnings = null,
+    };
+}
+
+/// Calculate cosine similarity between two embeddings
+pub fn cosineSimilarity(a: []const f64, b: []const f64) f64 {
+    if (a.len != b.len or a.len == 0) {
+        return 0;
+    }
+
+    var dot_product: f64 = 0;
+    var norm_a: f64 = 0;
+    var norm_b: f64 = 0;
+
+    for (a, b) |ai, bi| {
+        dot_product += ai * bi;
+        norm_a += ai * ai;
+        norm_b += bi * bi;
+    }
+
+    const denominator = @sqrt(norm_a) * @sqrt(norm_b);
+    if (denominator == 0) {
+        return 0;
+    }
+
+    return dot_product / denominator;
+}
+
+/// Calculate Euclidean distance between two embeddings
+pub fn euclideanDistance(a: []const f64, b: []const f64) f64 {
+    if (a.len != b.len) {
+        return std.math.inf(f64);
+    }
+
+    var sum: f64 = 0;
+    for (a, b) |ai, bi| {
+        const diff = ai - bi;
+        sum += diff * diff;
+    }
+
+    return @sqrt(sum);
+}
+
+/// Calculate dot product between two embeddings
+pub fn dotProduct(a: []const f64, b: []const f64) f64 {
+    if (a.len != b.len) {
+        return 0;
+    }
+
+    var sum: f64 = 0;
+    for (a, b) |ai, bi| {
+        sum += ai * bi;
+    }
+
+    return sum;
+}
+
+test "EmbedOptions default values" {
+    const model: EmbeddingModelV3 = undefined;
+    const options = EmbedOptions{
+        .model = @constCast(&model),
+        .value = "Hello",
+    };
+    try std.testing.expect(options.max_retries == 2);
+}
+
+test "cosineSimilarity identical vectors" {
+    const a = [_]f64{ 1.0, 0.0, 0.0 };
+    const b = [_]f64{ 1.0, 0.0, 0.0 };
+    const similarity = cosineSimilarity(&a, &b);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), similarity, 0.0001);
+}
+
+test "cosineSimilarity orthogonal vectors" {
+    const a = [_]f64{ 1.0, 0.0, 0.0 };
+    const b = [_]f64{ 0.0, 1.0, 0.0 };
+    const similarity = cosineSimilarity(&a, &b);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), similarity, 0.0001);
+}
+
+test "euclideanDistance same point" {
+    const a = [_]f64{ 1.0, 2.0, 3.0 };
+    const b = [_]f64{ 1.0, 2.0, 3.0 };
+    const distance = euclideanDistance(&a, &b);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), distance, 0.0001);
+}
+
+test "euclideanDistance unit distance" {
+    const a = [_]f64{ 0.0, 0.0 };
+    const b = [_]f64{ 1.0, 0.0 };
+    const distance = euclideanDistance(&a, &b);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), distance, 0.0001);
+}
+
+test "dotProduct simple" {
+    const a = [_]f64{ 1.0, 2.0, 3.0 };
+    const b = [_]f64{ 4.0, 5.0, 6.0 };
+    const product = dotProduct(&a, &b);
+    // 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+    try std.testing.expectApproxEqAbs(@as(f64, 32.0), product, 0.0001);
+}

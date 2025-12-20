@@ -1,0 +1,13 @@
+.{
+    .name = "zig-ai-sdk",
+    .version = "0.1.0",
+    .minimum_zig_version = "0.13.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "packages",
+        "examples",
+        "README.md",
+    },
+    .dependencies = .{},
+}

@@ -1,0 +1,350 @@
+const std = @import("std");
+const json_value = @import("../provider/src/json-value/index.zig");
+const parse_json = @import("parse-json.zig");
+
+/// Server-Sent Events (SSE) parser for JSON event streams.
+/// Parses text/event-stream format and extracts JSON data payloads.
+pub const EventSourceParser = struct {
+    buffer: std.ArrayList(u8),
+    data_buffer: std.ArrayList(u8),
+    event_type: ?[]const u8,
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+
+    /// Initialize a new event source parser
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return .{
+            .buffer = std.ArrayList(u8).init(allocator),
+            .data_buffer = std.ArrayList(u8).init(allocator),
+            .event_type = null,
+            .allocator = allocator,
+        };
+    }
+
+    /// Deinitialize the parser
+    pub fn deinit(self: *Self) void {
+        self.buffer.deinit();
+        self.data_buffer.deinit();
+        if (self.event_type) |et| {
+            self.allocator.free(et);
+        }
+    }
+
+    /// Reset the parser state for reuse
+    pub fn reset(self: *Self) void {
+        self.buffer.clearRetainingCapacity();
+        self.data_buffer.clearRetainingCapacity();
+        if (self.event_type) |et| {
+            self.allocator.free(et);
+            self.event_type = null;
+        }
+    }
+
+    /// Event parsed from the stream
+    pub const Event = struct {
+        event_type: ?[]const u8,
+        data: []const u8,
+    };
+
+    /// Feed data to the parser and emit events via callback
+    pub fn feed(
+        self: *Self,
+        data: []const u8,
+        on_event: *const fn (ctx: ?*anyopaque, event: Event) void,
+        ctx: ?*anyopaque,
+    ) !void {
+        try self.buffer.appendSlice(data);
+
+        // Process complete lines
+        while (self.findLineEnd()) |line_info| {
+            const line = self.buffer.items[0..line_info.end];
+            try self.processLine(line, on_event, ctx);
+
+            // Remove processed line from buffer
+            const remove_len = line_info.end + line_info.newline_len;
+            if (remove_len < self.buffer.items.len) {
+                std.mem.copyForwards(
+                    u8,
+                    self.buffer.items[0 .. self.buffer.items.len - remove_len],
+                    self.buffer.items[remove_len..],
+                );
+            }
+            self.buffer.shrinkRetainingCapacity(self.buffer.items.len - remove_len);
+        }
+    }
+
+    const LineEnd = struct {
+        end: usize,
+        newline_len: usize,
+    };
+
+    fn findLineEnd(self: *Self) ?LineEnd {
+        for (self.buffer.items, 0..) |char, i| {
+            if (char == '\n') {
+                // Check for \r\n
+                if (i > 0 and self.buffer.items[i - 1] == '\r') {
+                    return .{ .end = i - 1, .newline_len = 2 };
+                }
+                return .{ .end = i, .newline_len = 1 };
+            }
+            if (char == '\r') {
+                // Standalone \r (old Mac style)
+                if (i + 1 >= self.buffer.items.len or self.buffer.items[i + 1] != '\n') {
+                    return .{ .end = i, .newline_len = 1 };
+                }
+            }
+        }
+        return null;
+    }
+
+    fn processLine(
+        self: *Self,
+        line: []const u8,
+        on_event: *const fn (ctx: ?*anyopaque, event: Event) void,
+        ctx: ?*anyopaque,
+    ) !void {
+        // Empty line = dispatch event
+        if (line.len == 0) {
+            if (self.data_buffer.items.len > 0) {
+                // Skip [DONE] events (OpenAI convention)
+                if (!std.mem.eql(u8, self.data_buffer.items, "[DONE]")) {
+                    on_event(ctx, .{
+                        .event_type = self.event_type,
+                        .data = self.data_buffer.items,
+                    });
+                }
+                self.data_buffer.clearRetainingCapacity();
+                if (self.event_type) |et| {
+                    self.allocator.free(et);
+                    self.event_type = null;
+                }
+            }
+            return;
+        }
+
+        // Skip comments
+        if (line[0] == ':') {
+            return;
+        }
+
+        // Parse field:value
+        if (std.mem.indexOfScalar(u8, line, ':')) |colon_idx| {
+            const field = line[0..colon_idx];
+            var value = line[colon_idx + 1 ..];
+
+            // Skip leading space after colon
+            if (value.len > 0 and value[0] == ' ') {
+                value = value[1..];
+            }
+
+            if (std.mem.eql(u8, field, "event")) {
+                if (self.event_type) |et| {
+                    self.allocator.free(et);
+                }
+                self.event_type = try self.allocator.dupe(u8, value);
+            } else if (std.mem.eql(u8, field, "data")) {
+                if (self.data_buffer.items.len > 0) {
+                    try self.data_buffer.append('\n');
+                }
+                try self.data_buffer.appendSlice(value);
+            }
+            // Ignore 'id' and 'retry' fields for now
+        }
+    }
+};
+
+/// Parse a JSON event stream, calling the callback for each parsed JSON event.
+pub fn parseJsonEventStream(
+    comptime T: type,
+    allocator: std.mem.Allocator,
+    on_event: *const fn (ctx: ?*anyopaque, result: ParseEventResult(T)) void,
+    ctx: ?*anyopaque,
+) JsonEventStreamParser(T) {
+    return JsonEventStreamParser(T).init(allocator, on_event, ctx);
+}
+
+/// Result of parsing a JSON event
+pub fn ParseEventResult(comptime T: type) type {
+    return union(enum) {
+        success: struct {
+            value: T,
+            raw: []const u8,
+        },
+        failure: struct {
+            message: []const u8,
+            raw: []const u8,
+        },
+    };
+}
+
+/// JSON event stream parser that parses SSE events and extracts JSON data
+pub fn JsonEventStreamParser(comptime T: type) type {
+    return struct {
+        sse_parser: EventSourceParser,
+        on_event: *const fn (ctx: ?*anyopaque, result: ParseEventResult(T)) void,
+        ctx: ?*anyopaque,
+        allocator: std.mem.Allocator,
+
+        const Self = @This();
+
+        pub fn init(
+            allocator: std.mem.Allocator,
+            on_event: *const fn (ctx: ?*anyopaque, result: ParseEventResult(T)) void,
+            ctx: ?*anyopaque,
+        ) Self {
+            return .{
+                .sse_parser = EventSourceParser.init(allocator),
+                .on_event = on_event,
+                .ctx = ctx,
+                .allocator = allocator,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.sse_parser.deinit();
+        }
+
+        /// Feed data to the parser
+        pub fn feed(self: *Self, data: []const u8) !void {
+            try self.sse_parser.feed(data, handleEvent, self);
+        }
+
+        fn handleEvent(ctx: ?*anyopaque, event: EventSourceParser.Event) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            // Parse the JSON data
+            const parse_result = parse_json.safeParseJson(event.data, self.allocator);
+
+            switch (parse_result) {
+                .success => |parsed| {
+                    // In a full implementation, you'd convert parsed to T
+                    _ = parsed;
+                    self.on_event(self.ctx, .{
+                        .failure = .{
+                            .message = "Type conversion not implemented",
+                            .raw = event.data,
+                        },
+                    });
+                },
+                .failure => |err| {
+                    self.on_event(self.ctx, .{
+                        .failure = .{
+                            .message = err.message,
+                            .raw = event.data,
+                        },
+                    });
+                },
+            }
+        }
+    };
+}
+
+/// Streaming callbacks for JSON event streams
+pub const JsonEventStreamCallbacks = struct {
+    on_event: *const fn (ctx: ?*anyopaque, data: json_value.JsonValue) void,
+    on_error: *const fn (ctx: ?*anyopaque, message: []const u8, raw: []const u8) void,
+    on_complete: *const fn (ctx: ?*anyopaque) void,
+    ctx: ?*anyopaque = null,
+};
+
+/// Simple JSON event stream processor that doesn't require type parameter
+pub const SimpleJsonEventStreamParser = struct {
+    sse_parser: EventSourceParser,
+    callbacks: JsonEventStreamCallbacks,
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        callbacks: JsonEventStreamCallbacks,
+    ) Self {
+        return .{
+            .sse_parser = EventSourceParser.init(allocator),
+            .callbacks = callbacks,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.sse_parser.deinit();
+    }
+
+    pub fn feed(self: *Self, data: []const u8) !void {
+        try self.sse_parser.feed(data, handleEvent, self);
+    }
+
+    pub fn complete(self: *Self) void {
+        self.callbacks.on_complete(self.callbacks.ctx);
+    }
+
+    fn handleEvent(ctx: ?*anyopaque, event: EventSourceParser.Event) void {
+        const self: *Self = @ptrCast(@alignCast(ctx));
+
+        const parse_result = parse_json.safeParseJson(event.data, self.allocator);
+
+        switch (parse_result) {
+            .success => |parsed| {
+                self.callbacks.on_event(self.callbacks.ctx, parsed);
+            },
+            .failure => |err| {
+                self.callbacks.on_error(self.callbacks.ctx, err.message, event.data);
+            },
+        }
+    }
+};
+
+test "EventSourceParser basic" {
+    const allocator = std.testing.allocator;
+
+    var parser = EventSourceParser.init(allocator);
+    defer parser.deinit();
+
+    var events = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (events.items) |e| allocator.free(e);
+        events.deinit();
+    }
+
+    const TestContext = struct {
+        events: *std.ArrayList([]const u8),
+        allocator: std.mem.Allocator,
+
+        fn handler(ctx: ?*anyopaque, event: EventSourceParser.Event) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            const data = self.allocator.dupe(u8, event.data) catch return;
+            self.events.append(data) catch {
+                self.allocator.free(data);
+            };
+        }
+    };
+
+    var test_ctx = TestContext{
+        .events = &events,
+        .allocator = allocator,
+    };
+
+    try parser.feed("data: {\"text\": \"hello\"}\n\n", TestContext.handler, &test_ctx);
+
+    try std.testing.expectEqual(@as(usize, 1), events.items.len);
+    try std.testing.expectEqualStrings("{\"text\": \"hello\"}", events.items[0]);
+}
+
+test "EventSourceParser ignores DONE" {
+    const allocator = std.testing.allocator;
+
+    var parser = EventSourceParser.init(allocator);
+    defer parser.deinit();
+
+    var event_count: usize = 0;
+
+    try parser.feed("data: [DONE]\n\n", struct {
+        fn handler(_: ?*anyopaque, _: EventSourceParser.Event) void {
+            // This should not be called for [DONE]
+            unreachable;
+        }
+    }.handler, &event_count);
+
+    try std.testing.expectEqual(@as(usize, 0), event_count);
+}
