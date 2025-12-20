@@ -15,8 +15,8 @@ pub const EventSourceParser = struct {
     /// Initialize a new event source parser
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .buffer = std.ArrayList(u8).init(allocator),
-            .data_buffer = std.ArrayList(u8).init(allocator),
+            .buffer = std.array_list.Managed(u8).init(allocator),
+            .data_buffer = std.array_list.Managed(u8).init(allocator),
             .event_type = null,
             .allocator = allocator,
         };
@@ -301,7 +301,7 @@ test "EventSourceParser basic" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var events = std.ArrayList([]const u8).init(allocator);
+    var events = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (events.items) |e| allocator.free(e);
         events.deinit();
@@ -355,7 +355,7 @@ test "EventSourceParser multiple events" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var events = std.ArrayList([]const u8).init(allocator);
+    var events = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (events.items) |e| allocator.free(e);
         events.deinit();
@@ -403,7 +403,7 @@ test "EventSourceParser multiline data" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var events = std.ArrayList([]const u8).init(allocator);
+    var events = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (events.items) |e| allocator.free(e);
         events.deinit();
@@ -447,7 +447,7 @@ test "EventSourceParser with event types" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var event_types = std.ArrayList([]const u8).init(allocator);
+    var event_types = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (event_types.items) |e| allocator.free(e);
         event_types.deinit();
@@ -522,7 +522,7 @@ test "EventSourceParser different line endings" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var events = std.ArrayList([]const u8).init(allocator);
+    var events = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (events.items) |e| allocator.free(e);
         events.deinit();
@@ -561,7 +561,7 @@ test "EventSourceParser chunked input" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var events = std.ArrayList([]const u8).init(allocator);
+    var events = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (events.items) |e| allocator.free(e);
         events.deinit();
@@ -632,7 +632,7 @@ test "EventSourceParser empty data field" {
     var parser = EventSourceParser.init(allocator);
     defer parser.deinit();
 
-    var events = std.ArrayList([]const u8).init(allocator);
+    var events = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (events.items) |e| allocator.free(e);
         events.deinit();
@@ -665,7 +665,7 @@ test "EventSourceParser empty data field" {
 test "SimpleJsonEventStreamParser basic" {
     const allocator = std.testing.allocator;
 
-    var received_events = std.ArrayList(json_value.JsonValue).init(allocator);
+    var received_events = std.array_list.Managed(json_value.JsonValue).init(allocator);
     defer {
         for (received_events.items) |*event| {
             event.deinit(allocator);

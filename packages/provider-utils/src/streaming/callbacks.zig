@@ -174,8 +174,8 @@ pub const StreamAccumulator = struct {
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
-            .text = std.ArrayList(u8).init(allocator),
-            .tool_calls = std.ArrayList(AccumulatedToolCall).init(allocator),
+            .text = std.array_list.Managed(u8).init(allocator),
+            .tool_calls = std.array_list.Managed(AccumulatedToolCall).init(allocator),
             .allocator = allocator,
         };
     }
@@ -203,7 +203,7 @@ pub const StreamAccumulator = struct {
         try self.tool_calls.append(.{
             .id = try self.allocator.dupe(u8, id),
             .name = try self.allocator.dupe(u8, name),
-            .input = std.ArrayList(u8).init(self.allocator),
+            .input = std.array_list.Managed(u8).init(self.allocator),
         });
     }
 
@@ -335,7 +335,7 @@ test "CallbackBuilder basic" {
 }
 
 test "StreamCallbacks emit fail complete" {
-    var items = std.ArrayList(i32).init(std.testing.allocator);
+    var items = std.array_list.Managed(i32).init(std.testing.allocator);
     defer items.deinit();
 
     var error_seen: ?anyerror = null;

@@ -174,7 +174,7 @@ test "IdGenerator uniqueness" {
 
     var generator = createIdGenerator();
 
-    var ids = std.ArrayList([]u8).init(allocator);
+    var ids = std.array_list.Managed([]u8).init(allocator);
     defer {
         for (ids.items) |id| allocator.free(id);
         ids.deinit();

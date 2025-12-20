@@ -61,7 +61,7 @@ pub fn postJsonToApi(
     };
 
     // Build headers list
-    var headers_list = std.ArrayList(http_client.HttpClient.Header).init(allocator);
+    var headers_list = std.array_list.Managed(http_client.HttpClient.Header).init(allocator);
     defer headers_list.deinit();
 
     // Add Content-Type header
@@ -163,7 +163,7 @@ pub fn postToApi(
     callbacks: ApiCallbacks,
 ) void {
     // Build headers list
-    var headers_list = std.ArrayList(http_client.HttpClient.Header).init(allocator);
+    var headers_list = std.array_list.Managed(http_client.HttpClient.Header).init(allocator);
     defer headers_list.deinit();
 
     // Add custom headers
@@ -269,7 +269,7 @@ pub fn postJsonToApiStreaming(
     };
 
     // Build headers list
-    var headers_list = std.ArrayList(http_client.HttpClient.Header).init(allocator);
+    var headers_list = std.array_list.Managed(http_client.HttpClient.Header).init(allocator);
     defer headers_list.deinit();
 
     // Add Content-Type header

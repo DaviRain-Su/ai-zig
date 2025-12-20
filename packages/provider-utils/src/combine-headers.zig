@@ -20,7 +20,7 @@ pub fn combineHeaders(
     }
 
     // Convert to slice
-    var list = std.ArrayList(http_client.HttpClient.Header).init(allocator);
+    var list = std.array_list.Managed(http_client.HttpClient.Header).init(allocator);
     var iter = result.iterator();
     while (iter.next()) |entry| {
         try list.append(.{

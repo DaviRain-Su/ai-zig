@@ -126,7 +126,7 @@ pub const StdHttpClient = struct {
         };
 
         // Build response headers
-        var response_headers = std.ArrayList(client_mod.HttpClient.Header).init(allocator);
+        var response_headers = std.array_list.Managed(client_mod.HttpClient.Header).init(allocator);
         defer response_headers.deinit();
 
         var header_iter = http_request.response.iterateHeaders();
@@ -224,7 +224,7 @@ pub const StdHttpClient = struct {
 
         // Notify headers if callback is set
         if (callbacks.on_headers) |on_headers| {
-            var response_headers = std.ArrayList(client_mod.HttpClient.Header).init(allocator);
+            var response_headers = std.array_list.Managed(client_mod.HttpClient.Header).init(allocator);
             defer response_headers.deinit();
 
             var header_iter = http_request.response.iterateHeaders();
