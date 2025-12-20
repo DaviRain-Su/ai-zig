@@ -1,4 +1,6 @@
 const std = @import("std");
+const provider_utils = @import("provider-utils");
+const HttpClient = provider_utils.HttpClient;
 
 /// Configuration for Azure OpenAI API
 pub const AzureOpenAIConfig = struct {
@@ -18,7 +20,7 @@ pub const AzureOpenAIConfig = struct {
     headers_fn: ?*const fn (*const AzureOpenAIConfig) std.StringHashMap([]const u8) = null,
 
     /// Custom HTTP client
-    http_client: ?*anyopaque = null,
+    http_client: ?HttpClient = null,
 
     /// ID generator function
     generate_id: ?*const fn () []const u8 = null,

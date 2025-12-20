@@ -1,16 +1,18 @@
 const std = @import("std");
 const provider_v3 = @import("provider").provider;
 const lm = @import("provider").language_model;
+const provider_utils = @import("provider-utils");
+const HttpClient = provider_utils.HttpClient;
 
 const config_mod = @import("azure-config.zig");
 
 // Import OpenAI models (Azure reuses them)
-const openai_chat = @import("openai").chat.openai_chat_language_model;
-const openai_embed = @import("openai").embedding.openai_embedding_model;
-const openai_image = @import("openai").image.openai_image_model;
-const openai_speech = @import("openai").speech.openai_speech_model;
-const openai_transcription = @import("openai").transcription.openai_transcription_model;
-const openai_config = @import("openai").openai_config;
+const openai_chat = @import("openai").chat;
+const openai_embed = @import("openai").embedding;
+const openai_image = @import("openai").image;
+const openai_speech = @import("openai").speech;
+const openai_transcription = @import("openai").transcription;
+const openai_config = @import("openai").config;
 
 /// Azure OpenAI Provider settings
 pub const AzureOpenAIProviderSettings = struct {
@@ -33,7 +35,7 @@ pub const AzureOpenAIProviderSettings = struct {
     use_deployment_based_urls: ?bool = null,
 
     /// HTTP client
-    http_client: ?*anyopaque = null,
+    http_client: ?HttpClient = null,
 
     /// ID generator function
     generate_id: ?*const fn () []const u8 = null,
@@ -591,25 +593,25 @@ test "AzureOpenAIProvider asProvider interface" {
 
     const provider_interface = provider.asProvider();
 
-    // Test language model through vtable
-    const lang_result = provider_interface.vtable.languageModel(provider_interface.impl, "gpt-4");
-    try std.testing.expectEqual(@as(@TypeOf(lang_result), provider_v3.LanguageModelResult{ .ok = lang_result.ok }), lang_result);
+    // Test language model through interface
+    const lang_result = provider_interface.languageModel("gpt-4");
+    try std.testing.expectEqual(@as(@TypeOf(lang_result), provider_v3.LanguageModelResult{ .success = lang_result.success }), lang_result);
 
-    // Test embedding model through vtable
-    const embed_result = provider_interface.vtable.embeddingModel(provider_interface.impl, "text-embedding-ada-002");
-    try std.testing.expectEqual(@as(@TypeOf(embed_result), provider_v3.EmbeddingModelResult{ .ok = embed_result.ok }), embed_result);
+    // Test embedding model through interface
+    const embed_result = provider_interface.embeddingModel("text-embedding-ada-002");
+    try std.testing.expectEqual(@as(@TypeOf(embed_result), provider_v3.EmbeddingModelResult{ .success = embed_result.success }), embed_result);
 
-    // Test image model through vtable
-    const image_result = provider_interface.vtable.imageModel(provider_interface.impl, "dall-e-3");
-    try std.testing.expectEqual(@as(@TypeOf(image_result), provider_v3.ImageModelResult{ .ok = image_result.ok }), image_result);
+    // Test image model through interface
+    const image_result = provider_interface.imageModel("dall-e-3");
+    try std.testing.expectEqual(@as(@TypeOf(image_result), provider_v3.ImageModelResult{ .success = image_result.success }), image_result);
 
-    // Test speech model through vtable
-    const speech_result = provider_interface.vtable.speechModel(provider_interface.impl, "tts-1");
-    try std.testing.expectEqual(@as(@TypeOf(speech_result), provider_v3.SpeechModelResult{ .ok = speech_result.ok }), speech_result);
+    // Test speech model through interface
+    const speech_result = provider_interface.speechModel("tts-1");
+    try std.testing.expectEqual(@as(@TypeOf(speech_result), provider_v3.SpeechModelResult{ .success = speech_result.success }), speech_result);
 
-    // Test transcription model through vtable
-    const transcription_result = provider_interface.vtable.transcriptionModel(provider_interface.impl, "whisper-1");
-    try std.testing.expectEqual(@as(@TypeOf(transcription_result), provider_v3.TranscriptionModelResult{ .ok = transcription_result.ok }), transcription_result);
+    // Test transcription model through interface
+    const transcription_result = provider_interface.transcriptionModel("whisper-1");
+    try std.testing.expectEqual(@as(@TypeOf(transcription_result), provider_v3.TranscriptionModelResult{ .success = transcription_result.success }), transcription_result);
 }
 
 test "AzureOpenAIProvider config propagation" {
