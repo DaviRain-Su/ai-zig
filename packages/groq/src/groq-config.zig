@@ -60,8 +60,8 @@ test "GroqConfig default values" {
 
 test "GroqConfig custom values" {
     const test_headers_fn = struct {
-        fn getHeaders(_: *const GroqConfig) std.StringHashMap([]const u8) {
-            return std.StringHashMap([]const u8).init(std.testing.allocator);
+        fn getHeaders(_: *const GroqConfig, alloc: std.mem.Allocator) std.StringHashMap([]const u8) {
+            return std.StringHashMap([]const u8).init(alloc);
         }
     }.getHeaders;
 

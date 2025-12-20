@@ -257,8 +257,8 @@ test "OpenAIEmbeddingModel basic" {
         .provider = "openai.embedding",
         .base_url = "https://api.openai.com/v1",
         .headers_fn = struct {
-            fn getHeaders(_: *const config_mod.OpenAIConfig) std.StringHashMap([]const u8) {
-                return std.StringHashMap([]const u8).init(std.testing.allocator);
+            fn getHeaders(_: *const config_mod.OpenAIConfig, alloc: std.mem.Allocator) std.StringHashMap([]const u8) {
+                return std.StringHashMap([]const u8).init(alloc);
             }
         }.getHeaders,
     };

@@ -139,9 +139,9 @@ fn getApiKeyFromEnv() ?[]const u8 {
 }
 
 /// Headers function for config
-fn getHeadersFn(config: *const config_mod.AnthropicConfig) std.StringHashMap([]const u8) {
+fn getHeadersFn(config: *const config_mod.AnthropicConfig, allocator: std.mem.Allocator) std.StringHashMap([]const u8) {
     _ = config;
-    var headers = std.StringHashMap([]const u8).init(std.heap.page_allocator);
+    var headers = std.StringHashMap([]const u8).init(allocator);
 
     // Add API key header
     if (getApiKeyFromEnv()) |api_key| {

@@ -712,8 +712,8 @@ test "AnthropicMessagesLanguageModel basic" {
         .provider = "anthropic.messages",
         .base_url = "https://api.anthropic.com/v1",
         .headers_fn = struct {
-            fn getHeaders(_: *const config_mod.AnthropicConfig) std.StringHashMap([]const u8) {
-                return std.StringHashMap([]const u8).init(std.testing.allocator);
+            fn getHeaders(_: *const config_mod.AnthropicConfig, alloc: std.mem.Allocator) std.StringHashMap([]const u8) {
+                return std.StringHashMap([]const u8).init(alloc);
             }
         }.getHeaders,
     };

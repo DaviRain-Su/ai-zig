@@ -8,11 +8,11 @@ const tm = @import("provider").transcription_model;
 const provider_utils = @import("provider-utils");
 
 const config_mod = @import("openai-config.zig");
-const chat = @import("chat/index.zig");
-const embedding = @import("embedding/index.zig");
-const image = @import("image/index.zig");
-const speech = @import("speech/index.zig");
-const transcription = @import("transcription/index.zig");
+const chat_mod = @import("chat/index.zig");
+const embedding_mod = @import("embedding/index.zig");
+const image_mod = @import("image/index.zig");
+const speech_mod = @import("speech/index.zig");
+const transcription_mod = @import("transcription/index.zig");
 
 /// OpenAI Provider settings
 pub const OpenAIProviderSettings = struct {
@@ -78,71 +78,86 @@ pub const OpenAIProvider = struct {
 
     // -- Language Models --
 
-    /// Create a chat language model
-    pub fn chat_model(self: *Self, model_id: []const u8) chat.OpenAIChatLanguageModel {
+    /// Create a language model
+    pub fn languageModel(self: *Self, model_id: []const u8) chat_mod.OpenAIChatLanguageModel {
         var model_config = self.config;
         model_config.provider = self.getChatProviderName();
-        return chat.OpenAIChatLanguageModel.init(self.allocator, model_id, model_config);
+        return chat_mod.OpenAIChatLanguageModel.init(self.allocator, model_id, model_config);
     }
 
-    /// Create a language model (alias for responses model)
-    pub fn languageModel(self: *Self, model_id: []const u8) chat.OpenAIChatLanguageModel {
-        return self.chat_model(model_id);
+    /// Create a chat language model (alias for languageModel)
+    pub fn chatModel(self: *Self, model_id: []const u8) chat_mod.OpenAIChatLanguageModel {
+        return self.languageModel(model_id);
+    }
+
+    /// Create a chat language model (alias for languageModel)
+    pub fn chat(self: *Self, model_id: []const u8) chat_mod.OpenAIChatLanguageModel {
+        return self.languageModel(model_id);
     }
 
     // -- Embedding Model --
 
     /// Create an embedding model
-    pub fn embeddingModel(self: *Self, model_id: []const u8) embedding.OpenAIEmbeddingModel {
+    pub fn embeddingModel(self: *Self, model_id: []const u8) embedding_mod.OpenAIEmbeddingModel {
         var model_config = self.config;
         model_config.provider = self.getEmbeddingProviderName();
-        return embedding.OpenAIEmbeddingModel.init(self.allocator, model_id, model_config);
+        return embedding_mod.OpenAIEmbeddingModel.init(self.allocator, model_id, model_config);
     }
 
-    /// Alias for embeddingModel
-    pub fn embedding_model(self: *Self, model_id: []const u8) embedding.OpenAIEmbeddingModel {
+    /// Create an embedding model (alias)
+    pub fn embedding(self: *Self, model_id: []const u8) embedding_mod.OpenAIEmbeddingModel {
+        return self.embeddingModel(model_id);
+    }
+
+    /// Create a text embedding model (deprecated alias)
+    pub fn textEmbedding(self: *Self, model_id: []const u8) embedding_mod.OpenAIEmbeddingModel {
+        return self.embeddingModel(model_id);
+    }
+
+    /// Create a text embedding model (deprecated alias)
+    pub fn textEmbeddingModel(self: *Self, model_id: []const u8) embedding_mod.OpenAIEmbeddingModel {
         return self.embeddingModel(model_id);
     }
 
     // -- Image Model --
 
     /// Create an image model
-    pub fn imageModel(self: *Self, model_id: []const u8) image.OpenAIImageModel {
+    pub fn imageModel(self: *Self, model_id: []const u8) image_mod.OpenAIImageModel {
         var model_config = self.config;
         model_config.provider = self.getImageProviderName();
-        return image.OpenAIImageModel.init(self.allocator, model_id, model_config);
+        return image_mod.OpenAIImageModel.init(self.allocator, model_id, model_config);
     }
 
-    /// Alias for imageModel
-    pub fn image_model(self: *Self, model_id: []const u8) image.OpenAIImageModel {
+    /// Create an image model (alias)
+    pub fn image(self: *Self, model_id: []const u8) image_mod.OpenAIImageModel {
         return self.imageModel(model_id);
     }
 
     // -- Speech Model --
 
     /// Create a speech model
-    pub fn speechModel(self: *Self, model_id: []const u8) speech.OpenAISpeechModel {
+    pub fn speechModel(self: *Self, model_id: []const u8) speech_mod.OpenAISpeechModel {
         var model_config = self.config;
         model_config.provider = self.getSpeechProviderName();
-        return speech.OpenAISpeechModel.init(self.allocator, model_id, model_config);
+        return speech_mod.OpenAISpeechModel.init(self.allocator, model_id, model_config);
     }
 
-    /// Alias for speechModel
-    pub fn speech_model(self: *Self, model_id: []const u8) speech.OpenAISpeechModel {
+    /// Create a speech model (alias)
+    pub fn speech(self: *Self, model_id: []const u8) speech_mod.OpenAISpeechModel {
         return self.speechModel(model_id);
     }
 
     // -- Transcription Model --
 
     /// Create a transcription model
-    pub fn transcriptionModel(self: *Self, model_id: []const u8) transcription.OpenAITranscriptionModel {
+    pub fn transcriptionModel(self: *Self, model_id: []const u8) transcription_mod.OpenAITranscriptionModel {
         var model_config = self.config;
         model_config.provider = self.getTranscriptionProviderName();
-        return transcription.OpenAITranscriptionModel.init(self.allocator, model_id, model_config);
+        return transcription_mod.OpenAITranscriptionModel.init(self.allocator, model_id, model_config);
     }
 
-    /// Alias for transcriptionModel
-    pub fn transcription_model(self: *Self, model_id: []const u8) transcription.OpenAITranscriptionModel {
+    /// Create a transcription model (alias)
+    pub fn transcription(self: *Self, model_id: []const u8) transcription_mod.OpenAITranscriptionModel {
         return self.transcriptionModel(model_id);
     }
 
@@ -193,7 +208,7 @@ pub const OpenAIProvider = struct {
 
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
-        var model = self.chat_model(model_id);
+        var model = self.languageModel(model_id);
         return .{ .success = model.asLanguageModel() };
     }
 
@@ -233,13 +248,13 @@ fn getApiKeyFromEnv() ?[]const u8 {
 }
 
 /// Headers function for config
-fn getHeadersFn(config: *const config_mod.OpenAIConfig) std.StringHashMap([]const u8) {
+fn getHeadersFn(config: *const config_mod.OpenAIConfig, allocator: std.mem.Allocator) std.StringHashMap([]const u8) {
     _ = config;
     var headers = std.StringHashMap([]const u8).init(std.heap.page_allocator);
 
     // Add authorization header
     if (getApiKeyFromEnv()) |api_key| {
-        const auth_value = std.fmt.allocPrint(std.heap.page_allocator, "Bearer {s}", .{api_key}) catch "Bearer ";
+        const auth_value = std.fmt.allocPrint(allocator, "Bearer {s}", .{api_key}) catch "Bearer ";
         headers.put("Authorization", auth_value) catch {};
     }
 
@@ -291,13 +306,23 @@ test "OpenAIProvider with custom settings" {
     try std.testing.expectEqualStrings("custom-openai", provider.getProvider());
 }
 
-test "OpenAIProvider chat model" {
+test "OpenAIProvider language model" {
     const allocator = std.testing.allocator;
 
     var provider = createOpenAI(allocator);
     defer provider.deinit();
 
-    const model = provider.chat_model("gpt-4o");
+    const model = provider.languageModel("gpt-4o");
+    try std.testing.expectEqualStrings("gpt-4o", model.getModelId());
+}
+
+test "OpenAIProvider chat model alias" {
+    const allocator = std.testing.allocator;
+
+    var provider = createOpenAI(allocator);
+    defer provider.deinit();
+
+    const model = provider.chat("gpt-4o");
     try std.testing.expectEqualStrings("gpt-4o", model.getModelId());
 }
 

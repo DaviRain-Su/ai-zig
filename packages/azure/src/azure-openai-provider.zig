@@ -150,7 +150,7 @@ pub const AzureOpenAIProvider = struct {
     // -- Speech Models --
 
     /// Create a speech model
-    pub fn speech(self: *Self, deployment_id: []const u8) openai_speech.OpenAISpeechModel {
+    pub fn speechModel(self: *Self, deployment_id: []const u8) openai_speech.OpenAISpeechModel {
         return openai_speech.OpenAISpeechModel.init(
             self.allocator,
             deployment_id,
@@ -158,15 +158,25 @@ pub const AzureOpenAIProvider = struct {
         );
     }
 
+    /// Create a speech model (alias)
+    pub fn speech(self: *Self, deployment_id: []const u8) openai_speech.OpenAISpeechModel {
+        return self.speechModel(deployment_id);
+    }
+
     // -- Transcription Models --
 
     /// Create a transcription model
-    pub fn transcription(self: *Self, deployment_id: []const u8) openai_transcription.OpenAITranscriptionModel {
+    pub fn transcriptionModel(self: *Self, deployment_id: []const u8) openai_transcription.OpenAITranscriptionModel {
         return openai_transcription.OpenAITranscriptionModel.init(
             self.allocator,
             deployment_id,
             self.buildOpenAIConfig("azure.transcription"),
         );
+    }
+
+    /// Create a transcription model (alias)
+    pub fn transcription(self: *Self, deployment_id: []const u8) openai_transcription.OpenAITranscriptionModel {
+        return self.transcriptionModel(deployment_id);
     }
 
     /// Build OpenAI config for models
@@ -218,13 +228,13 @@ pub const AzureOpenAIProvider = struct {
 
     fn speechModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
-        var model = self.speech(model_id);
+        var model = self.speechModel(model_id);
         return .{ .success = model.asSpeechModel() };
     }
 
     fn transcriptionModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
-        var model = self.transcription(model_id);
+        var model = self.transcriptionModel(model_id);
         return .{ .success = model.asTranscriptionModel() };
     }
 };
