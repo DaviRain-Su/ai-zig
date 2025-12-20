@@ -12,7 +12,6 @@ pub const AnthropicProvider = provider.AnthropicProvider;
 pub const AnthropicProviderSettings = provider.AnthropicProviderSettings;
 pub const createAnthropic = provider.createAnthropic;
 pub const createAnthropicWithSettings = provider.createAnthropicWithSettings;
-pub const anthropic = provider.anthropic;
 
 // Configuration
 pub const config = @import("anthropic-config.zig");

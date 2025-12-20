@@ -13,7 +13,6 @@ pub const OpenAIProvider = provider.OpenAIProvider;
 pub const OpenAIProviderSettings = provider.OpenAIProviderSettings;
 pub const createOpenAI = provider.createOpenAI;
 pub const createOpenAIWithSettings = provider.createOpenAIWithSettings;
-pub const openai = provider.openai;
 
 // Configuration
 pub const config = @import("openai-config.zig");
