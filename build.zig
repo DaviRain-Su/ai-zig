@@ -340,6 +340,7 @@ pub fn build(b: *std.Build) void {
                 .target = target,
                 .optimize = optimize,
             }),
+            .test_runner = .{ .path = b.path("test_runner.zig"), .mode = .simple },
         });
         for (config.imports) |imp| {
             tests.root_module.addImport(imp.name, imp.mod);
