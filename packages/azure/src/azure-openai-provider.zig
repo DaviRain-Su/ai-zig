@@ -76,8 +76,11 @@ pub const AzureOpenAIProvider = struct {
 
     /// Deinitialize the provider
     pub fn deinit(self: *Self) void {
-        _ = self;
-        // Clean up any allocated resources
+        // Free base_url if it was allocated (when settings.base_url was null)
+        if (self.settings.base_url == null) {
+            // base_url was allocated by buildBaseUrlFromResourceName
+            self.allocator.free(self.config.base_url);
+        }
     }
 
     /// Get the provider name
