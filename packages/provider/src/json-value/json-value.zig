@@ -16,6 +16,7 @@ pub const JsonValue = union(enum) {
     /// Parse a JSON string into a JsonValue using the provided allocator.
     pub fn parse(allocator: std.mem.Allocator, input: []const u8) !Self {
         const parsed = try std.json.parseFromSlice(std.json.Value, allocator, input, .{});
+        defer parsed.deinit();
         return fromStdJson(allocator, parsed.value);
     }
 
