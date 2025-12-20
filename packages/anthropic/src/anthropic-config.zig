@@ -26,7 +26,6 @@ pub const AnthropicConfig = struct {
 
     /// Get headers for a request
     pub fn getHeaders(self: *const AnthropicConfig, allocator: std.mem.Allocator) std.StringHashMap([]const u8) {
-        _ = allocator;
         return self.headers_fn(self, allocator);
     }
 };

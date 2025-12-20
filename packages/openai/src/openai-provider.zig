@@ -274,17 +274,6 @@ pub fn createOpenAIWithSettings(allocator: std.mem.Allocator, settings: OpenAIPr
     return OpenAIProvider.init(allocator, settings);
 }
 
-/// Default OpenAI provider instance (created lazily)
-var default_provider: ?OpenAIProvider = null;
-
-/// Get the default OpenAI provider
-pub fn openai() *OpenAIProvider {
-    if (default_provider == null) {
-        default_provider = createOpenAI(std.heap.page_allocator);
-    }
-    return &default_provider.?;
-}
-
 test "OpenAIProvider basic" {
     const allocator = std.testing.allocator;
 

@@ -9,7 +9,7 @@ pub const GroqConfig = struct {
     base_url: []const u8 = "https://api.groq.com/openai/v1",
 
     /// Function to get headers
-    headers_fn: ?*const fn (*const GroqConfig) std.StringHashMap([]const u8) = null,
+    headers_fn: ?*const fn (*const GroqConfig, std.mem.Allocator) std.StringHashMap([]const u8) = null,
 
     /// HTTP client (optional)
     http_client: ?*anyopaque = null,

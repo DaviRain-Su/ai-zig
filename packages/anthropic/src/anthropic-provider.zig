@@ -167,17 +167,6 @@ pub fn createAnthropicWithSettings(allocator: std.mem.Allocator, settings: Anthr
     return AnthropicProvider.init(allocator, settings);
 }
 
-/// Default Anthropic provider instance (created lazily)
-var default_provider: ?AnthropicProvider = null;
-
-/// Get the default Anthropic provider
-pub fn anthropic() *AnthropicProvider {
-    if (default_provider == null) {
-        default_provider = createAnthropic(std.heap.page_allocator);
-    }
-    return &default_provider.?;
-}
-
 test "AnthropicProvider basic" {
     const allocator = std.testing.allocator;
 
