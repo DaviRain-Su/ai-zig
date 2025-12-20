@@ -77,7 +77,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         result_allocator: std.mem.Allocator,
         call_options: lm.LanguageModelV3CallOptions,
     ) !GenerateResultOk {
-        var all_warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
+        var all_warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
         var all_betas = std.StringHashMap(void).init(request_allocator);
 
         // Check for unsupported features
@@ -177,7 +177,7 @@ pub const AnthropicMessagesLanguageModel = struct {
 
         // Add beta header if needed
         if (all_betas.count() > 0) {
-            var beta_list = std.ArrayList(u8).init(request_allocator);
+            var beta_list = std.array_list.Managed(u8).init(request_allocator);
             var iter = all_betas.iterator();
             var first = true;
             while (iter.next()) |entry| {
@@ -227,7 +227,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         const response = parsed.value;
 
         // Extract content
-        var content = std.ArrayList(lm.LanguageModelV3Content).init(result_allocator);
+        var content = std.array_list.Managed(lm.LanguageModelV3Content).init(result_allocator);
 
         for (response.content) |block| {
             switch (block) {
@@ -302,7 +302,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         self: *const Self,
         call_options: lm.LanguageModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callbacks: provider_utils.StreamCallbacks(lm.LanguageModelV3StreamPart),
+        callbacks: lm.LanguageModelV3.StreamCallbacks,
     ) void {
         // Use arena for request processing
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -310,7 +310,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         const request_allocator = arena.allocator();
 
         self.doStreamInternal(request_allocator, result_allocator, call_options, callbacks) catch |err| {
-            callbacks.on_error(err, callbacks.context);
+            callbacks.on_error(callbacks.ctx, err);
         };
     }
 
@@ -319,19 +319,19 @@ pub const AnthropicMessagesLanguageModel = struct {
         request_allocator: std.mem.Allocator,
         result_allocator: std.mem.Allocator,
         call_options: lm.LanguageModelV3CallOptions,
-        callbacks: provider_utils.StreamCallbacks(lm.LanguageModelV3StreamPart),
+        callbacks: lm.LanguageModelV3.StreamCallbacks,
     ) !void {
-        var all_warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
+        var all_warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
 
         // Check for unsupported features (same as doGenerate)
         if (call_options.frequency_penalty != null) {
-            try all_warnings.append(.{ .type = .unsupported, .feature = "frequencyPenalty" });
+            try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("frequencyPenalty", null));
         }
         if (call_options.presence_penalty != null) {
-            try all_warnings.append(.{ .type = .unsupported, .feature = "presencePenalty" });
+            try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("presencePenalty", null));
         }
         if (call_options.seed != null) {
-            try all_warnings.append(.{ .type = .unsupported, .feature = "seed" });
+            try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("seed", null));
         }
 
         // Clamp temperature
@@ -364,7 +364,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         for (all_warnings.items, 0..) |w, i| {
             warnings_copy[i] = w;
         }
-        callbacks.on_part(.{ .stream_start = .{ .warnings = warnings_copy } }, callbacks.context);
+        callbacks.on_part(callbacks.ctx, .{ .stream_start = .{ .warnings = warnings_copy } });
 
         // Build request body with streaming enabled
         const request = api.AnthropicMessagesRequest{
@@ -412,7 +412,7 @@ pub const AnthropicMessagesLanguageModel = struct {
             fn onChunk(ctx: *anyopaque, chunk: []const u8) void {
                 const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
                 state.processChunk(chunk) catch |err| {
-                    state.callbacks.on_error(err, state.callbacks.context);
+                    state.callbacks.on_error(state.callbacks.ctx, err);
                 };
             }
             fn onComplete(ctx: *anyopaque) void {
@@ -421,7 +421,7 @@ pub const AnthropicMessagesLanguageModel = struct {
             }
             fn onError(ctx: *anyopaque, err: anyerror) void {
                 const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.callbacks.on_error(err, state.callbacks.context);
+                state.callbacks.on_error(state.callbacks.ctx, err);
             }
         }.onChunk, struct {
             fn onComplete(ctx: *anyopaque) void {
@@ -431,7 +431,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         }.onComplete, struct {
             fn onError(ctx: *anyopaque, err: anyerror) void {
                 const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.callbacks.on_error(err, state.callbacks.context);
+                state.callbacks.on_error(state.callbacks.ctx, err);
             }
         }.onError, &stream_state);
     }
@@ -514,7 +514,7 @@ const ContentBlockState = struct {
 
 /// State for stream processing
 const StreamState = struct {
-    callbacks: provider_utils.StreamCallbacks(lm.LanguageModelV3StreamPart),
+    callbacks: lm.LanguageModelV3.StreamCallbacks,
     result_allocator: std.mem.Allocator,
     content_blocks: std.AutoHashMap(u32, ContentBlockState),
     finish_reason: lm.LanguageModelV3FinishReason,
@@ -544,12 +544,12 @@ const StreamState = struct {
 
         if (std.mem.eql(u8, chunk_type, "message_start")) {
             if (chunk.message) |msg| {
-                self.callbacks.on_part(.{
+                self.callbacks.on_part(self.callbacks.ctx, .{
                     .response_metadata = .{
                         .id = msg.id,
                         .model_id = msg.model,
                     },
-                }, self.callbacks.context);
+                });
             }
         } else if (std.mem.eql(u8, chunk_type, "content_block_start")) {
             const index = chunk.index orelse return;
@@ -559,34 +559,34 @@ const StreamState = struct {
                     .text => {
                         try self.content_blocks.put(index, .{
                             .block_type = .text,
-                            .input = std.ArrayList(u8).init(self.result_allocator),
+                            .input = std.array_list.Managed(u8).init(self.result_allocator),
                         });
-                        self.callbacks.on_part(.{
+                        self.callbacks.on_part(self.callbacks.ctx, .{
                             .text_start = .{ .id = try std.fmt.allocPrint(self.result_allocator, "{d}", .{index}) },
-                        }, self.callbacks.context);
+                        });
                     },
                     .thinking => {
                         try self.content_blocks.put(index, .{
                             .block_type = .thinking,
-                            .input = std.ArrayList(u8).init(self.result_allocator),
+                            .input = std.array_list.Managed(u8).init(self.result_allocator),
                         });
-                        self.callbacks.on_part(.{
+                        self.callbacks.on_part(self.callbacks.ctx, .{
                             .reasoning_start = .{ .id = try std.fmt.allocPrint(self.result_allocator, "{d}", .{index}) },
-                        }, self.callbacks.context);
+                        });
                     },
                     .tool_use => |tu| {
                         try self.content_blocks.put(index, .{
                             .block_type = .tool_use,
                             .tool_call_id = tu.id,
                             .tool_name = tu.name,
-                            .input = std.ArrayList(u8).init(self.result_allocator),
+                            .input = std.array_list.Managed(u8).init(self.result_allocator),
                         });
-                        self.callbacks.on_part(.{
+                        self.callbacks.on_part(self.callbacks.ctx, .{
                             .tool_input_start = .{
                                 .id = tu.id,
                                 .tool_name = tu.name,
                             },
-                        }, self.callbacks.context);
+                        });
                     },
                     else => {},
                 }
@@ -597,30 +597,30 @@ const StreamState = struct {
             if (chunk.delta) |delta| {
                 switch (delta) {
                     .text_delta => |td| {
-                        self.callbacks.on_part(.{
+                        self.callbacks.on_part(self.callbacks.ctx, .{
                             .text_delta = .{
                                 .id = try std.fmt.allocPrint(self.result_allocator, "{d}", .{index}),
                                 .delta = td.text,
                             },
-                        }, self.callbacks.context);
+                        });
                     },
                     .thinking_delta => |td| {
-                        self.callbacks.on_part(.{
+                        self.callbacks.on_part(self.callbacks.ctx, .{
                             .reasoning_delta = .{
                                 .id = try std.fmt.allocPrint(self.result_allocator, "{d}", .{index}),
                                 .delta = td.thinking,
                             },
-                        }, self.callbacks.context);
+                        });
                     },
                     .input_json_delta => |jd| {
                         if (self.content_blocks.get(index)) |block| {
                             if (block.block_type == .tool_use) {
-                                self.callbacks.on_part(.{
+                                self.callbacks.on_part(self.callbacks.ctx, .{
                                     .tool_input_delta = .{
                                         .id = block.tool_call_id orelse "",
                                         .delta = jd.partial_json,
                                     },
-                                }, self.callbacks.context);
+                                });
                             }
                         }
                     },
@@ -635,10 +635,10 @@ const StreamState = struct {
 
                 switch (block.block_type) {
                     .text => {
-                        self.callbacks.on_part(.{ .text_end = .{ .id = id } }, self.callbacks.context);
+                        self.callbacks.on_part(self.callbacks.ctx, .{ .text_end = .{ .id = id } });
                     },
                     .thinking => {
-                        self.callbacks.on_part(.{ .reasoning_end = .{ .id = id } }, self.callbacks.context);
+                        self.callbacks.on_part(self.callbacks.ctx, .{ .reasoning_end = .{ .id = id } });
                     },
                     .tool_use => {
                         self.callbacks.on_part(.{
@@ -704,7 +704,7 @@ const StreamState = struct {
 
 /// Serialize request to JSON
 fn serializeRequest(allocator: std.mem.Allocator, request: api.AnthropicMessagesRequest) ![]const u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer = std.array_list.Managed(u8).init(allocator);
     try std.json.stringify(request, .{}, buffer.writer());
     return buffer.toOwnedSlice();
 }

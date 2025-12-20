@@ -32,8 +32,8 @@ pub fn convertToAnthropicMessagesPrompt(
     allocator: std.mem.Allocator,
     options: ConvertOptions,
 ) !ConvertResult {
-    var messages = std.ArrayList(api.AnthropicMessagesRequest.RequestMessage).init(allocator);
-    var warnings = std.ArrayList(shared.SharedV3Warning).init(allocator);
+    var messages = std.array_list.Managed(api.AnthropicMessagesRequest.RequestMessage).init(allocator);
+    var warnings = std.array_list.Managed(shared.SharedV3Warning).init(allocator);
     var system_content: ?[]api.AnthropicMessagesRequest.SystemContent = null;
     var betas = std.StringHashMap(void).init(allocator);
 
@@ -50,7 +50,7 @@ pub fn convertToAnthropicMessagesPrompt(
             },
             .user => {
                 // Convert user message
-                var content_parts = std.ArrayList(api.AnthropicMessagesRequest.MessageContent).init(allocator);
+                var content_parts = std.array_list.Managed(api.AnthropicMessagesRequest.MessageContent).init(allocator);
 
                 for (msg.content.user) |part| {
                     switch (part) {
@@ -64,7 +64,7 @@ pub fn convertToAnthropicMessagesPrompt(
                         },
                         .file => |f| {
                             // Convert file to image if applicable
-                            if (std.mem.startsWith(u8, f.media_type orelse "", "image/")) {
+                            if (std.mem.startsWith(u8, f.media_type, "image/")) {
                                 const data = switch (f.data) {
                                     .base64 => |b64| b64,
                                     .url => |url| url, // Would need to download
@@ -76,14 +76,14 @@ pub fn convertToAnthropicMessagesPrompt(
                                         .type = "image",
                                         .source = .{
                                             .type = "base64",
-                                            .media_type = f.media_type orelse "image/png",
+                                            .media_type = f.media_type,
                                             .data = data,
                                         },
                                     },
                                 });
 
                                 // Add beta for PDF support
-                                if (std.mem.eql(u8, f.media_type orelse "", "application/pdf")) {
+                                if (std.mem.eql(u8, f.media_type, "application/pdf")) {
                                     try betas.put("pdfs-2024-09-25", {});
                                 }
                             }
@@ -98,7 +98,7 @@ pub fn convertToAnthropicMessagesPrompt(
             },
             .assistant => {
                 // Convert assistant message
-                var content_parts = std.ArrayList(api.AnthropicMessagesRequest.MessageContent).init(allocator);
+                var content_parts = std.array_list.Managed(api.AnthropicMessagesRequest.MessageContent).init(allocator);
 
                 for (msg.content.assistant) |part| {
                     switch (part) {
@@ -142,7 +142,7 @@ pub fn convertToAnthropicMessagesPrompt(
             },
             .tool => {
                 // Convert tool result message
-                var content_parts = std.ArrayList(api.AnthropicMessagesRequest.MessageContent).init(allocator);
+                var content_parts = std.array_list.Managed(api.AnthropicMessagesRequest.MessageContent).init(allocator);
 
                 for (msg.content.tool) |part| {
                     const output_text = switch (part.output) {

@@ -362,7 +362,7 @@ pub fn convertAnthropicMessagesUsage(usage: AnthropicMessagesResponse.Usage) lm.
         .input_tokens = .{
             .total = usage.input_tokens,
             .cache_read = usage.cache_read_input_tokens,
-            .cache_creation = usage.cache_creation_input_tokens,
+            .cache_write = usage.cache_creation_input_tokens,
         },
         .output_tokens = .{
             .total = usage.output_tokens,
@@ -382,5 +382,5 @@ test "convertAnthropicMessagesUsage" {
     try std.testing.expectEqual(@as(u64, 100), result.input_tokens.total.?);
     try std.testing.expectEqual(@as(u64, 50), result.output_tokens.total.?);
     try std.testing.expectEqual(@as(u64, 20), result.input_tokens.cache_read.?);
-    try std.testing.expectEqual(@as(u64, 10), result.input_tokens.cache_creation.?);
+    try std.testing.expectEqual(@as(u64, 10), result.input_tokens.cache_write.?);
 }
