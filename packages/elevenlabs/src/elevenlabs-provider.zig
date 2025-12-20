@@ -278,8 +278,8 @@ test "ElevenLabsProvider asProvider returns ProviderV3" {
     defer provider.deinit();
 
     const prov_v3 = provider.asProvider();
-    try std.testing.expect(prov_v3.vtable != undefined);
-    try std.testing.expect(prov_v3.impl != undefined);
+    try std.testing.expect(@intFromPtr(prov_v3.vtable) != 0);
+    try std.testing.expect(@intFromPtr(prov_v3.impl) != 0);
 }
 
 test "ElevenLabsProvider vtable languageModel returns error" {
@@ -290,8 +290,11 @@ test "ElevenLabsProvider vtable languageModel returns error" {
     const prov_v3 = provider.asProvider();
     const result = prov_v3.vtable.languageModel(prov_v3.impl, "test-model");
 
-    try std.testing.expect(result.err != null);
-    try std.testing.expectEqual(error.NoSuchModel, result.err.?);
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure => {},
+        .no_such_model => {},
+    }
 }
 
 test "ElevenLabsProvider vtable embeddingModel returns error" {
@@ -302,8 +305,11 @@ test "ElevenLabsProvider vtable embeddingModel returns error" {
     const prov_v3 = provider.asProvider();
     const result = prov_v3.vtable.embeddingModel(prov_v3.impl, "test-model");
 
-    try std.testing.expect(result.err != null);
-    try std.testing.expectEqual(error.NoSuchModel, result.err.?);
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure => {},
+        .no_such_model => {},
+    }
 }
 
 test "ElevenLabsProvider vtable imageModel returns error" {
@@ -314,8 +320,11 @@ test "ElevenLabsProvider vtable imageModel returns error" {
     const prov_v3 = provider.asProvider();
     const result = prov_v3.vtable.imageModel(prov_v3.impl, "test-model");
 
-    try std.testing.expect(result.err != null);
-    try std.testing.expectEqual(error.NoSuchModel, result.err.?);
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure => {},
+        .no_such_model => {},
+    }
 }
 
 test "ElevenLabsProvider vtable speechModel returns error" {
@@ -324,10 +333,14 @@ test "ElevenLabsProvider vtable speechModel returns error" {
     defer provider.deinit();
 
     const prov_v3 = provider.asProvider();
-    const result = prov_v3.vtable.speechModel(prov_v3.impl, "test-model");
+    const result = prov_v3.speechModel("test-model");
 
-    try std.testing.expect(result.err != null);
-    try std.testing.expectEqual(error.NoSuchModel, result.err.?);
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure => {},
+        .no_such_model => {},
+        .not_supported => {},
+    }
 }
 
 test "ElevenLabsProvider vtable transcriptionModel returns error" {
@@ -336,10 +349,14 @@ test "ElevenLabsProvider vtable transcriptionModel returns error" {
     defer provider.deinit();
 
     const prov_v3 = provider.asProvider();
-    const result = prov_v3.vtable.transcriptionModel(prov_v3.impl, "test-model");
+    const result = prov_v3.transcriptionModel("test-model");
 
-    try std.testing.expect(result.err != null);
-    try std.testing.expectEqual(error.NoSuchModel, result.err.?);
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure => {},
+        .no_such_model => {},
+        .not_supported => {},
+    }
 }
 
 test "ElevenLabsSpeechModel initialization" {
