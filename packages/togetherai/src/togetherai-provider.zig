@@ -268,18 +268,12 @@ test "TogetherAIProvider asProvider vtable language model" {
     var provider = createTogetherAI(allocator);
     defer provider.deinit();
 
-    var provider_interface = provider.asProvider();
+    const provider_interface = provider.asProvider();
     const result = provider_interface.vtable.languageModel(provider_interface.impl, "test-model");
 
     switch (result) {
-        .success => |model| {
-            _ = model;
-            // Success - model was created
-        },
-        .failure => |err| {
-            try std.testing.expect(false); // Should not error
-            _ = err;
-        },
+        .success => {},
+        .failure, .no_such_model => try std.testing.expect(false),
     }
 }
 
@@ -289,18 +283,12 @@ test "TogetherAIProvider asProvider vtable embedding model" {
     var provider = createTogetherAI(allocator);
     defer provider.deinit();
 
-    var provider_interface = provider.asProvider();
+    const provider_interface = provider.asProvider();
     const result = provider_interface.vtable.embeddingModel(provider_interface.impl, "embed-model");
 
     switch (result) {
-        .success => |model| {
-            _ = model;
-            // Success - model was created
-        },
-        .failure => |err| {
-            try std.testing.expect(false); // Should not error
-            _ = err;
-        },
+        .success => {},
+        .failure, .no_such_model => try std.testing.expect(false),
     }
 }
 
@@ -310,16 +298,12 @@ test "TogetherAIProvider asProvider vtable image model returns error" {
     var provider = createTogetherAI(allocator);
     defer provider.deinit();
 
-    var provider_interface = provider.asProvider();
+    const provider_interface = provider.asProvider();
     const result = provider_interface.vtable.imageModel(provider_interface.impl, "image-model");
 
     switch (result) {
-        .success => {
-            try std.testing.expect(false); // Should error
-        },
-        .failure => |err| {
-            try std.testing.expectEqual(error.NoSuchModel, err);
-        },
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
     }
 }
 
@@ -329,16 +313,12 @@ test "TogetherAIProvider asProvider vtable speech model returns error" {
     var provider = createTogetherAI(allocator);
     defer provider.deinit();
 
-    var provider_interface = provider.asProvider();
-    const result = provider_interface.vtable.speechModel(provider_interface.impl, "speech-model");
+    const provider_interface = provider.asProvider();
+    const result = provider_interface.speechModel("speech-model");
 
     switch (result) {
-        .success => {
-            try std.testing.expect(false); // Should error
-        },
-        .failure => |err| {
-            try std.testing.expectEqual(error.NoSuchModel, err);
-        },
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model, .not_supported => {},
     }
 }
 
@@ -348,16 +328,12 @@ test "TogetherAIProvider asProvider vtable transcription model returns error" {
     var provider = createTogetherAI(allocator);
     defer provider.deinit();
 
-    var provider_interface = provider.asProvider();
-    const result = provider_interface.vtable.transcriptionModel(provider_interface.impl, "transcription-model");
+    const provider_interface = provider.asProvider();
+    const result = provider_interface.transcriptionModel("transcription-model");
 
     switch (result) {
-        .success => {
-            try std.testing.expect(false); // Should error
-        },
-        .failure => |err| {
-            try std.testing.expectEqual(error.NoSuchModel, err);
-        },
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model, .not_supported => {},
     }
 }
 
@@ -543,9 +519,12 @@ test "TogetherAIProvider vtable pointer cast safety" {
     const embed_result = provider_interface.vtable.embeddingModel(provider_interface.impl, "test");
     const image_result = provider_interface.vtable.imageModel(provider_interface.impl, "test");
 
-    try std.testing.expect(lang_result == .ok);
-    try std.testing.expect(embed_result == .ok);
-    try std.testing.expect(image_result == .err);
+    try std.testing.expect(lang_result == .success);
+    try std.testing.expect(embed_result == .success);
+    switch (image_result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 }
 
 test "TogetherAIProvider common model names" {
