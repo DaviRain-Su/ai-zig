@@ -59,7 +59,7 @@ pub const GoogleVertexImageModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        var warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
+        var warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
 
         // Check for size option (not supported)
         if (call_options.size != null) {

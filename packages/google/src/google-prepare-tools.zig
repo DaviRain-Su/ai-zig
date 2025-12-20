@@ -97,7 +97,7 @@ pub fn prepareTools(
     tool_choice: ?lm.LanguageModelV3ToolChoice,
     model_id: []const u8,
 ) !PrepareToolsResult {
-    var warnings = std.ArrayList(shared.SharedV3Warning).init(allocator);
+    var warnings = std.array_list.Managed(shared.SharedV3Warning).init(allocator);
 
     // Check for empty tools array
     if (tools == null or tools.?.len == 0) {
@@ -133,7 +133,7 @@ pub fn prepareTools(
 
     // Handle provider tools
     if (has_provider_tools) {
-        var provider_tools = std.ArrayList(ProviderTool).init(allocator);
+        var provider_tools = std.array_list.Managed(ProviderTool).init(allocator);
 
         for (tools_list) |tool| {
             switch (tool) {
@@ -224,7 +224,7 @@ pub fn prepareTools(
     }
 
     // Handle function tools
-    var function_declarations = std.ArrayList(FunctionDeclaration).init(allocator);
+    var function_declarations = std.array_list.Managed(FunctionDeclaration).init(allocator);
 
     for (tools_list) |tool| {
         switch (tool) {

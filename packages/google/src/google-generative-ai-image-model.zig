@@ -44,19 +44,24 @@ pub const GoogleGenerativeAIImageModel = struct {
     }
 
     /// Get the maximum images per call
-    pub fn getMaxImagesPerCall(self: *const Self) u32 {
-        return self.settings.max_images_per_call orelse default_max_images_per_call;
+    pub fn getMaxImagesPerCall(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        ctx: ?*anyopaque,
+    ) void {
+        const max = self.settings.max_images_per_call orelse default_max_images_per_call;
+        callback(ctx, max);
     }
 
     /// Generate images
     pub fn doGenerate(
-        self: *Self,
+        self: *const Self,
         call_options: image.ImageModelV3CallOptions,
-        provider_options: ?options_mod.GoogleGenerativeAIImageProviderOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?image.ImageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
+        callback: *const fn (?*anyopaque, image.ImageModelV3.GenerateResult) void,
         callback_context: ?*anyopaque,
     ) void {
+        const provider_options: ?options_mod.GoogleGenerativeAIImageProviderOptions = null;
         // Use arena for request processing
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
@@ -66,12 +71,12 @@ pub const GoogleGenerativeAIImageModel = struct {
 
         // Check for unsupported features
         if (call_options.files != null and call_options.files.?.len > 0) {
-            callback(null, error.ImageEditingNotSupported, callback_context);
+            callback(callback_context, .{ .failure = error.ImageEditingNotSupported });
             return;
         }
 
         if (call_options.mask != null) {
-            callback(null, error.ImageEditingNotSupported, callback_context);
+            callback(callback_context, .{ .failure = error.ImageEditingNotSupported });
             return;
         }
 
@@ -80,7 +85,7 @@ pub const GoogleGenerativeAIImageModel = struct {
                 .type = .unsupported,
                 .message = "size option not supported, use aspectRatio instead",
             }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -90,7 +95,7 @@ pub const GoogleGenerativeAIImageModel = struct {
                 .type = .unsupported,
                 .message = "seed option not supported through this provider",
             }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -101,7 +106,7 @@ pub const GoogleGenerativeAIImageModel = struct {
             "{s}/models/{s}:predict",
             .{ self.config.base_url, self.model_id },
         ) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -112,28 +117,28 @@ pub const GoogleGenerativeAIImageModel = struct {
         var instances = std.json.Array.init(request_allocator);
         var instance = std.json.ObjectMap.init(request_allocator);
         instance.put("prompt", .{ .string = call_options.prompt }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
         instances.append(.{ .object = instance }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
         body.put("instances", .{ .array = instances }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
         // Parameters
         var parameters = std.json.ObjectMap.init(request_allocator);
         parameters.put("sampleCount", .{ .integer = @intCast(call_options.n orelse 1) }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
         if (call_options.aspect_ratio) |ar| {
             parameters.put("aspectRatio", .{ .string = ar }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -142,20 +147,20 @@ pub const GoogleGenerativeAIImageModel = struct {
         if (provider_options) |opts| {
             if (opts.person_generation) |pg| {
                 parameters.put("personGeneration", .{ .string = pg.toString() }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.aspect_ratio) |ar| {
                 parameters.put("aspectRatio", .{ .string = ar.toString() }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
         }
 
         body.put("parameters", .{ .object = parameters }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -172,7 +177,7 @@ pub const GoogleGenerativeAIImageModel = struct {
         // Actual implementation would make HTTP request and parse response
         const n = call_options.n orelse 1;
         const images = result_allocator.alloc([]const u8, n) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
         for (images, 0..) |*img, i| {
@@ -180,54 +185,21 @@ pub const GoogleGenerativeAIImageModel = struct {
             img.* = ""; // Placeholder base64 data
         }
 
-        const result = image.ImageModelV3.GenerateResult{
-            .images = images,
+        const result = image.ImageModelV3.GenerateSuccess{
+            .images = .{ .base64 = images },
             .warnings = warnings.toOwnedSlice() catch &[_]shared.SharedV3Warning{},
-            .provider_metadata = null,
+            .response = .{
+                .timestamp = std.time.milliTimestamp(),
+                .model_id = self.model_id,
+            },
         };
 
-        callback(result, null, callback_context);
+        callback(callback_context, .{ .success = result });
     }
 
     /// Convert to ImageModelV3 interface
     pub fn asImageModel(self: *Self) image.ImageModelV3 {
-        return .{
-            .vtable = &vtable,
-            .impl = self,
-        };
-    }
-
-    const vtable = image.ImageModelV3.VTable{
-        .doGenerate = doGenerateVtable,
-        .getModelId = getModelIdVtable,
-        .getProvider = getProviderVtable,
-        .getMaxImagesPerCall = getMaxImagesPerCallVtable,
-    };
-
-    fn doGenerateVtable(
-        impl: *anyopaque,
-        call_options: image.ImageModelV3CallOptions,
-        result_allocator: std.mem.Allocator,
-        callback: *const fn (?image.ImageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
-        callback_context: ?*anyopaque,
-    ) void {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(call_options, null, result_allocator, callback, callback_context);
-    }
-
-    fn getModelIdVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getModelId();
-    }
-
-    fn getProviderVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getProvider();
-    }
-
-    fn getMaxImagesPerCallVtable(impl: *anyopaque) u32 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getMaxImagesPerCall();
+        return image.asImageModel(Self, self);
     }
 };
 

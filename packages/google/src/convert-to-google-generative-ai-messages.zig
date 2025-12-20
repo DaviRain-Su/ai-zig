@@ -23,8 +23,8 @@ pub fn convertToGoogleGenerativeAIMessages(
     prompt: lm.LanguageModelV3Prompt,
     options: ConvertOptions,
 ) !ConvertResult {
-    var system_instruction_parts = std.ArrayList(prompt_types.GoogleGenerativeAIPrompt.SystemInstruction.TextPart).init(allocator);
-    var contents = std.ArrayList(prompt_types.GoogleGenerativeAIContent).init(allocator);
+    var system_instruction_parts = std.array_list.Managed(prompt_types.GoogleGenerativeAIPrompt.SystemInstruction.TextPart).init(allocator);
+    var contents = std.array_list.Managed(prompt_types.GoogleGenerativeAIContent).init(allocator);
     var system_messages_allowed = true;
 
     for (prompt) |msg| {
@@ -38,7 +38,7 @@ pub fn convertToGoogleGenerativeAIMessages(
             .user => {
                 system_messages_allowed = false;
 
-                var parts = std.ArrayList(prompt_types.GoogleGenerativeAIContentPart).init(allocator);
+                var parts = std.array_list.Managed(prompt_types.GoogleGenerativeAIContentPart).init(allocator);
 
                 for (msg.content.user) |part| {
                     switch (part) {
@@ -89,7 +89,7 @@ pub fn convertToGoogleGenerativeAIMessages(
             .assistant => {
                 system_messages_allowed = false;
 
-                var parts = std.ArrayList(prompt_types.GoogleGenerativeAIContentPart).init(allocator);
+                var parts = std.array_list.Managed(prompt_types.GoogleGenerativeAIContentPart).init(allocator);
 
                 for (msg.content.assistant) |part| {
                     switch (part) {
@@ -148,7 +148,7 @@ pub fn convertToGoogleGenerativeAIMessages(
             .tool => {
                 system_messages_allowed = false;
 
-                var parts = std.ArrayList(prompt_types.GoogleGenerativeAIContentPart).init(allocator);
+                var parts = std.array_list.Managed(prompt_types.GoogleGenerativeAIContentPart).init(allocator);
 
                 for (msg.content.tool) |part| {
                     const output_text = switch (part.output) {
@@ -183,7 +183,7 @@ pub fn convertToGoogleGenerativeAIMessages(
     if (options.is_gemma_model and system_instruction_parts.items.len > 0 and contents.items.len > 0) {
         if (std.mem.eql(u8, contents.items[0].role, "user") and contents.items[0].parts.len > 0) {
             // Build system text
-            var system_text = std.ArrayList(u8).init(allocator);
+            var system_text = std.array_list.Managed(u8).init(allocator);
             for (system_instruction_parts.items, 0..) |part, i| {
                 if (i > 0) try system_text.appendSlice("\n\n");
                 try system_text.appendSlice(part.text);
