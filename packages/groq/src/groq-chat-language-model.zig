@@ -38,12 +38,25 @@ pub const GroqChatLanguageModel = struct {
         return self.config.provider;
     }
 
+    /// Get supported URLs (Groq doesn't support URL-based inputs)
+    pub fn getSupportedUrls(
+        self: *const Self,
+        allocator: std.mem.Allocator,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.SupportedUrlsResult) void,
+        callback_context: ?*anyopaque,
+    ) void {
+        _ = self;
+        // Groq doesn't support URL-based inputs, return empty map
+        const urls = std.StringHashMap([]const []const u8).init(allocator);
+        callback(callback_context, .{ .success = urls });
+    }
+
     /// Generate content (non-streaming)
     pub fn doGenerate(
         self: *Self,
         call_options: lm.LanguageModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?lm.LanguageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void,
         callback_context: ?*anyopaque,
     ) void {
         // Use arena for request processing
@@ -53,7 +66,7 @@ pub const GroqChatLanguageModel = struct {
 
         // Build the request body (OpenAI format)
         const request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -62,7 +75,7 @@ pub const GroqChatLanguageModel = struct {
             request_allocator,
             self.config.base_url,
         ) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -73,29 +86,29 @@ pub const GroqChatLanguageModel = struct {
         }
 
         // Serialize request body
-        var body_buffer = std.ArrayList(u8).init(request_allocator);
+        var body_buffer = std.array_list.Managed(u8).init(request_allocator);
         std.json.stringify(request_body, .{}, body_buffer.writer()) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
         _ = url;
-        _ = headers;
-        _ = body_buffer;
+        _ = result_allocator;
+        _ = body_buffer.items;
+        _ = headers.count();
 
         // For now, return placeholder result
-        const result = lm.LanguageModelV3.GenerateResult{
-            .content = &[_]lm.LanguageModelV3Content{},
-            .finish_reason = .stop,
-            .usage = .{
-                .prompt_tokens = 0,
-                .completion_tokens = 0,
+        callback(callback_context, .{
+            .success = .{
+                .content = &[_]lm.LanguageModelV3Content{},
+                .finish_reason = .stop,
+                .usage = .{
+                    .prompt_tokens = 0,
+                    .completion_tokens = 0,
+                },
+                .warnings = &[_]shared.SharedV3Warning{},
             },
-            .warnings = &[_]shared.SharedV3Warning{},
-        };
-
-        _ = result_allocator;
-        callback(result, null, callback_context);
+        });
     }
 
     /// Stream content
@@ -112,14 +125,14 @@ pub const GroqChatLanguageModel = struct {
 
         // Build the request body with streaming enabled
         var request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
-            callbacks.on_error(err, callbacks.context);
+            callbacks.on_error(callbacks.ctx, err);
             return;
         };
 
         // Add stream flag
         if (request_body == .object) {
             request_body.object.put("stream", .{ .bool = true }) catch |err| {
-                callbacks.on_error(err, callbacks.context);
+                callbacks.on_error(callbacks.ctx, err);
                 return;
             };
         }
@@ -129,7 +142,7 @@ pub const GroqChatLanguageModel = struct {
             request_allocator,
             self.config.base_url,
         ) catch |err| {
-            callbacks.on_error(err, callbacks.context);
+            callbacks.on_error(callbacks.ctx, err);
             return;
         };
 
@@ -137,10 +150,10 @@ pub const GroqChatLanguageModel = struct {
         _ = result_allocator;
 
         // Emit stream start
-        callbacks.on_part(.{ .stream_start = .{} }, callbacks.context);
+        callbacks.on_part(callbacks.ctx, .{ .stream_start = .{} });
 
         // For now, emit completion
-        callbacks.on_part(.{
+        callbacks.on_part(callbacks.ctx, .{
             .finish = .{
                 .finish_reason = .stop,
                 .usage = .{
@@ -148,9 +161,9 @@ pub const GroqChatLanguageModel = struct {
                     .completion_tokens = 0,
                 },
             },
-        }, callbacks.context);
+        });
 
-        callbacks.on_complete(callbacks.context);
+        callbacks.on_complete(callbacks.ctx, null);
     }
 
     /// Build the request body (OpenAI format)
@@ -179,7 +192,7 @@ pub const GroqChatLanguageModel = struct {
                     var message = std.json.ObjectMap.init(allocator);
                     try message.put("role", .{ .string = "user" });
 
-                    var text_parts = std.ArrayList([]const u8).init(allocator);
+                    var text_parts = std.array_list.Managed([]const u8).init(allocator);
                     for (msg.content.user) |part| {
                         switch (part) {
                             .text => |t| try text_parts.append(t.text),
@@ -195,7 +208,7 @@ pub const GroqChatLanguageModel = struct {
                     var message = std.json.ObjectMap.init(allocator);
                     try message.put("role", .{ .string = "assistant" });
 
-                    var text_content = std.ArrayList([]const u8).init(allocator);
+                    var text_content = std.array_list.Managed([]const u8).init(allocator);
                     var tool_calls = std.json.Array.init(allocator);
 
                     for (msg.content.assistant) |part| {
@@ -208,7 +221,9 @@ pub const GroqChatLanguageModel = struct {
 
                                 var func = std.json.ObjectMap.init(allocator);
                                 try func.put("name", .{ .string = tc.tool_name });
-                                try func.put("arguments", .{ .string = tc.input });
+                                // Stringify the JsonValue to a JSON string
+                                const input_str = try tc.input.stringify(allocator);
+                                try func.put("arguments", .{ .string = input_str });
                                 try tool_call.put("function", .{ .object = func });
 
                                 try tool_calls.append(.{ .object = tool_call });
@@ -288,7 +303,9 @@ pub const GroqChatLanguageModel = struct {
                         if (func.description) |desc| {
                             try func_obj.put("description", .{ .string = desc });
                         }
-                        try func_obj.put("parameters", func.input_schema);
+                        // Convert JsonValue to std.json.Value
+                        const std_json_schema = try func.input_schema.toStdJson(allocator);
+                        try func_obj.put("parameters", std_json_schema);
 
                         try tool_obj.put("function", .{ .object = func_obj });
                         try tools_array.append(.{ .object = tool_obj });
@@ -315,13 +332,14 @@ pub const GroqChatLanguageModel = struct {
         .doStream = doStreamVtable,
         .getModelId = getModelIdVtable,
         .getProvider = getProviderVtable,
+        .getSupportedUrls = getSupportedUrlsVtable,
     };
 
     fn doGenerateVtable(
         impl: *anyopaque,
         call_options: lm.LanguageModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?lm.LanguageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void,
         callback_context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
@@ -346,6 +364,16 @@ pub const GroqChatLanguageModel = struct {
     fn getProviderVtable(impl: *anyopaque) []const u8 {
         const self: *Self = @ptrCast(@alignCast(impl));
         return self.getProvider();
+    }
+
+    fn getSupportedUrlsVtable(
+        impl: *anyopaque,
+        allocator: std.mem.Allocator,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.SupportedUrlsResult) void,
+        callback_context: ?*anyopaque,
+    ) void {
+        const self: *Self = @ptrCast(@alignCast(impl));
+        self.getSupportedUrls(allocator, callback, callback_context);
     }
 };
 
@@ -401,10 +429,8 @@ test "GroqChatLanguageModel asLanguageModel interface" {
     );
 
     const lang_model = model.asLanguageModel();
-    try std.testing.expect(lang_model.vtable.getModelId != null);
-    try std.testing.expect(lang_model.vtable.getProvider != null);
-    try std.testing.expect(lang_model.vtable.doGenerate != null);
-    try std.testing.expect(lang_model.vtable.doStream != null);
+    // VTable functions are always non-null, just verify the vtable exists
+    try std.testing.expect(lang_model.vtable == &vtable);
 }
 
 test "GroqChatLanguageModel multiple instances with different models" {
@@ -428,14 +454,14 @@ test "GroqChatLanguageModel buildRequestBody with simple prompt" {
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
-    const prompt = [_]lm.LanguageModelV3Prompt{
+    const user_parts = [_]lm.language_model_v3_prompt.UserPart{
+        .{ .text = .{ .text = "Hello" } },
+    };
+
+    const prompt = [_]lm.LanguageModelV3Message{
         .{
             .role = .user,
-            .content = .{
-                .user = &[_]lm.LanguageModelV3Content{
-                    .{ .text = .{ .text = "Hello" } },
-                },
-            },
+            .content = .{ .user = &user_parts },
         },
     };
 
@@ -446,8 +472,6 @@ test "GroqChatLanguageModel buildRequestBody with simple prompt" {
         .top_p = null,
         .top_k = null,
         .seed = null,
-        .max_retries = null,
-        .abort_signal = null,
         .headers = null,
         .stop_sequences = null,
         .tools = null,
@@ -471,14 +495,14 @@ test "GroqChatLanguageModel buildRequestBody with max_tokens" {
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
-    const prompt = [_]lm.LanguageModelV3Prompt{
+    const user_parts = [_]lm.language_model_v3_prompt.UserPart{
+        .{ .text = .{ .text = "Hello" } },
+    };
+
+    const prompt = [_]lm.LanguageModelV3Message{
         .{
             .role = .user,
-            .content = .{
-                .user = &[_]lm.LanguageModelV3Content{
-                    .{ .text = .{ .text = "Hello" } },
-                },
-            },
+            .content = .{ .user = &user_parts },
         },
     };
 
@@ -489,8 +513,6 @@ test "GroqChatLanguageModel buildRequestBody with max_tokens" {
         .top_p = null,
         .top_k = null,
         .seed = null,
-        .max_retries = null,
-        .abort_signal = null,
         .headers = null,
         .stop_sequences = null,
         .tools = null,
@@ -514,14 +536,14 @@ test "GroqChatLanguageModel buildRequestBody with temperature and top_p" {
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
-    const prompt = [_]lm.LanguageModelV3Prompt{
+    const user_parts = [_]lm.language_model_v3_prompt.UserPart{
+        .{ .text = .{ .text = "Hello" } },
+    };
+
+    const prompt = [_]lm.LanguageModelV3Message{
         .{
             .role = .user,
-            .content = .{
-                .user = &[_]lm.LanguageModelV3Content{
-                    .{ .text = .{ .text = "Hello" } },
-                },
-            },
+            .content = .{ .user = &user_parts },
         },
     };
 
@@ -532,8 +554,6 @@ test "GroqChatLanguageModel buildRequestBody with temperature and top_p" {
         .top_p = 0.9,
         .top_k = null,
         .seed = null,
-        .max_retries = null,
-        .abort_signal = null,
         .headers = null,
         .stop_sequences = null,
         .tools = null,
@@ -562,14 +582,14 @@ test "GroqChatLanguageModel buildRequestBody with seed" {
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
-    const prompt = [_]lm.LanguageModelV3Prompt{
+    const user_parts = [_]lm.language_model_v3_prompt.UserPart{
+        .{ .text = .{ .text = "Hello" } },
+    };
+
+    const prompt = [_]lm.LanguageModelV3Message{
         .{
             .role = .user,
-            .content = .{
-                .user = &[_]lm.LanguageModelV3Content{
-                    .{ .text = .{ .text = "Hello" } },
-                },
-            },
+            .content = .{ .user = &user_parts },
         },
     };
 
@@ -580,8 +600,6 @@ test "GroqChatLanguageModel buildRequestBody with seed" {
         .top_p = null,
         .top_k = null,
         .seed = 42,
-        .max_retries = null,
-        .abort_signal = null,
         .headers = null,
         .stop_sequences = null,
         .tools = null,
@@ -605,14 +623,14 @@ test "GroqChatLanguageModel buildRequestBody with stop sequences" {
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
-    const prompt = [_]lm.LanguageModelV3Prompt{
+    const user_parts = [_]lm.language_model_v3_prompt.UserPart{
+        .{ .text = .{ .text = "Hello" } },
+    };
+
+    const prompt = [_]lm.LanguageModelV3Message{
         .{
             .role = .user,
-            .content = .{
-                .user = &[_]lm.LanguageModelV3Content{
-                    .{ .text = .{ .text = "Hello" } },
-                },
-            },
+            .content = .{ .user = &user_parts },
         },
     };
 
@@ -625,8 +643,6 @@ test "GroqChatLanguageModel buildRequestBody with stop sequences" {
         .top_p = null,
         .top_k = null,
         .seed = null,
-        .max_retries = null,
-        .abort_signal = null,
         .headers = null,
         .stop_sequences = &stops,
         .tools = null,
@@ -650,18 +666,18 @@ test "GroqChatLanguageModel buildRequestBody with system message" {
 
     var model = GroqChatLanguageModel.init(allocator, "test-model", .{});
 
-    const prompt = [_]lm.LanguageModelV3Prompt{
+    const user_parts = [_]lm.language_model_v3_prompt.UserPart{
+        .{ .text = .{ .text = "Hello" } },
+    };
+
+    const prompt = [_]lm.LanguageModelV3Message{
         .{
             .role = .system,
             .content = .{ .system = "You are a helpful assistant" },
         },
         .{
             .role = .user,
-            .content = .{
-                .user = &[_]lm.LanguageModelV3Content{
-                    .{ .text = .{ .text = "Hello" } },
-                },
-            },
+            .content = .{ .user = &user_parts },
         },
     };
 
@@ -672,8 +688,6 @@ test "GroqChatLanguageModel buildRequestBody with system message" {
         .top_p = null,
         .top_k = null,
         .seed = null,
-        .max_retries = null,
-        .abort_signal = null,
         .headers = null,
         .stop_sequences = null,
         .tools = null,

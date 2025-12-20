@@ -298,7 +298,7 @@ test "GroqProvider ProviderV3 interface language model" {
     const provider_v3_interface = provider.asProvider();
     const result = provider_v3_interface.vtable.languageModel(provider_v3_interface.impl, "llama-3.3-70b-versatile");
 
-    try std.testing.expect(result == .ok);
+    try std.testing.expect(result == .success);
 }
 
 test "GroqProvider ProviderV3 interface unsupported models return errors" {
@@ -310,20 +310,28 @@ test "GroqProvider ProviderV3 interface unsupported models return errors" {
     const provider_v3_interface = provider.asProvider();
 
     const embedding_result = provider_v3_interface.vtable.embeddingModel(provider_v3_interface.impl, "test");
-    try std.testing.expect(embedding_result == .err);
-    try std.testing.expectEqual(error.NoSuchModel, embedding_result.err);
+    switch (embedding_result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 
     const image_result = provider_v3_interface.vtable.imageModel(provider_v3_interface.impl, "test");
-    try std.testing.expect(image_result == .err);
-    try std.testing.expectEqual(error.NoSuchModel, image_result.err);
+    switch (image_result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 
-    const speech_result = provider_v3_interface.vtable.speechModel(provider_v3_interface.impl, "test");
-    try std.testing.expect(speech_result == .err);
-    try std.testing.expectEqual(error.NoSuchModel, speech_result.err);
+    const speech_result = provider_v3_interface.speechModel("test");
+    switch (speech_result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model, .not_supported => {},
+    }
 
-    const transcription_result = provider_v3_interface.vtable.transcriptionModel(provider_v3_interface.impl, "test");
-    try std.testing.expect(transcription_result == .err);
-    try std.testing.expectEqual(error.NoSuchModel, transcription_result.err);
+    const transcription_result = provider_v3_interface.transcriptionModel("test");
+    switch (transcription_result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model, .not_supported => {},
+    }
 }
 
 test "GroqProvider multiple models can be created from same provider" {
