@@ -42,6 +42,7 @@ pub fn safeParseJson(
         };
         return .{ .failure = .{ .message = message } };
     };
+    defer parsed.deinit();
 
     // Convert to our JsonValue type
     const result = json_value.JsonValue.fromStdJson(allocator, parsed.value) catch {
@@ -140,7 +141,8 @@ pub fn parseJsonTyped(
     }
 }
 
-/// Extract a specific field from JSON without full parsing
+/// Extract a specific field from JSON without full parsing.
+/// Returns a newly allocated string that the caller must free.
 pub fn extractJsonField(
     text: []const u8,
     field_name: []const u8,
@@ -150,9 +152,13 @@ pub fn extractJsonField(
     const result = safeParseJson(text, allocator);
     switch (result) {
         .success => |value| {
+            defer {
+                var v = value;
+                v.deinit(allocator);
+            }
             if (value.get(field_name)) |field_value| {
                 switch (field_value) {
-                    .string => |s| return s,
+                    .string => |s| return allocator.dupe(u8, s) catch null,
                     else => {
                         // Try to stringify the value
                         return field_value.stringify(allocator) catch null;
@@ -368,6 +374,7 @@ test "extractJsonField string" {
 
     const json = "{\"message\": \"hello world\"}";
     const result = extractJsonField(json, "message", allocator);
+    defer if (result) |r| allocator.free(r);
 
     try std.testing.expect(result != null);
     try std.testing.expectEqualStrings("hello world", result.?);

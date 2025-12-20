@@ -8,6 +8,7 @@ pub const EventSourceParser = struct {
     buffer: std.array_list.Managed(u8),
     data_buffer: std.array_list.Managed(u8),
     event_type: ?[]const u8,
+    has_data_field: bool,
     allocator: std.mem.Allocator,
 
     const Self = @This();
@@ -18,6 +19,7 @@ pub const EventSourceParser = struct {
             .buffer = std.array_list.Managed(u8).init(allocator),
             .data_buffer = std.array_list.Managed(u8).init(allocator),
             .event_type = null,
+            .has_data_field = false,
             .allocator = allocator,
         };
     }
@@ -35,6 +37,7 @@ pub const EventSourceParser = struct {
     pub fn reset(self: *Self) void {
         self.buffer.clearRetainingCapacity();
         self.data_buffer.clearRetainingCapacity();
+        self.has_data_field = false;
         if (self.event_type) |et| {
             self.allocator.free(et);
             self.event_type = null;
@@ -106,7 +109,7 @@ pub const EventSourceParser = struct {
     ) !void {
         // Empty line = dispatch event
         if (line.len == 0) {
-            if (self.data_buffer.items.len > 0) {
+            if (self.has_data_field) {
                 // Skip [DONE] events (OpenAI convention)
                 if (!std.mem.eql(u8, self.data_buffer.items, "[DONE]")) {
                     on_event(ctx, .{
@@ -115,6 +118,7 @@ pub const EventSourceParser = struct {
                     });
                 }
                 self.data_buffer.clearRetainingCapacity();
+                self.has_data_field = false;
                 if (self.event_type) |et| {
                     self.allocator.free(et);
                     self.event_type = null;
@@ -144,6 +148,7 @@ pub const EventSourceParser = struct {
                 }
                 self.event_type = try self.allocator.dupe(u8, value);
             } else if (std.mem.eql(u8, field, "data")) {
+                self.has_data_field = true;
                 if (self.data_buffer.items.len > 0) {
                     try self.data_buffer.append('\n');
                 }

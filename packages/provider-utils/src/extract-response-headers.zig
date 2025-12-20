@@ -11,12 +11,20 @@ pub fn extractResponseHeaders(
     errdefer result.deinit();
 
     for (headers) |header| {
-        // Duplicate the strings to ensure they're owned by the allocator
-        const name = try allocator.dupe(u8, header.name);
-        errdefer allocator.free(name);
+        // Duplicate the value to ensure it's owned by the allocator
         const value = try allocator.dupe(u8, header.value);
+        errdefer allocator.free(value);
 
-        try result.put(name, value);
+        // Check if key already exists
+        if (result.getPtr(header.name)) |existing_value| {
+            // Free the old value and replace it
+            allocator.free(existing_value.*);
+            existing_value.* = value;
+        } else {
+            // New key, duplicate the name
+            const name = try allocator.dupe(u8, header.name);
+            try result.put(name, value);
+        }
     }
 
     return result;

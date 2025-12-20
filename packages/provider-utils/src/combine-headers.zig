@@ -276,7 +276,15 @@ test "addBearerToken" {
     };
 
     const combined = try addBearerToken(allocator, &existing, "test-token-123");
-    defer allocator.free(combined);
+    defer {
+        // Free the allocated auth value string
+        for (combined) |header| {
+            if (std.mem.eql(u8, header.name, "Authorization")) {
+                allocator.free(header.value);
+            }
+        }
+        allocator.free(combined);
+    }
 
     try std.testing.expectEqual(@as(usize, 2), combined.len);
 
@@ -299,7 +307,15 @@ test "addAuthorizationHeader custom type" {
         "Basic",
         "credentials",
     );
-    defer allocator.free(combined);
+    defer {
+        // Free the allocated auth value string
+        for (combined) |header| {
+            if (std.mem.eql(u8, header.name, "Authorization")) {
+                allocator.free(header.value);
+            }
+        }
+        allocator.free(combined);
+    }
 
     try std.testing.expectEqual(@as(usize, 1), combined.len);
     try std.testing.expectEqualStrings("Authorization", combined[0].name);
