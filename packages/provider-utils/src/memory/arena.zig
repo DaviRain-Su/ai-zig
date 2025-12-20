@@ -89,7 +89,7 @@ pub const ResponseArena = struct {
 /// efficient memory usage for streaming operations.
 pub const StreamingArena = struct {
     /// List of chunk arenas - each chunk gets its own arena
-    chunk_arenas: std.ArrayList(std.heap.ArenaAllocator),
+    chunk_arenas: std.ArrayListUnmanaged(std.heap.ArenaAllocator),
     /// The backing allocator for creating new arenas
     backing_allocator: std.mem.Allocator,
     /// Index of the current chunk being written to
@@ -100,7 +100,7 @@ pub const StreamingArena = struct {
     /// Initialize a new streaming arena
     pub fn init(backing_allocator: std.mem.Allocator) Self {
         return .{
-            .chunk_arenas = std.ArrayList(std.heap.ArenaAllocator).init(backing_allocator),
+            .chunk_arenas = .{},
             .backing_allocator = backing_allocator,
             .current_chunk = 0,
         };
@@ -110,7 +110,7 @@ pub const StreamingArena = struct {
     /// Creates a new chunk arena if needed.
     pub fn chunkAllocator(self: *Self) !std.mem.Allocator {
         if (self.current_chunk >= self.chunk_arenas.items.len) {
-            try self.chunk_arenas.append(std.heap.ArenaAllocator.init(self.backing_allocator));
+            try self.chunk_arenas.append(self.backing_allocator, std.heap.ArenaAllocator.init(self.backing_allocator));
         }
         return self.chunk_arenas.items[self.current_chunk].allocator();
     }
@@ -140,7 +140,7 @@ pub const StreamingArena = struct {
         for (self.chunk_arenas.items) |*arena| {
             arena.deinit();
         }
-        self.chunk_arenas.deinit();
+        self.chunk_arenas.deinit(self.backing_allocator);
     }
 
     /// Duplicate data into the current chunk

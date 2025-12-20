@@ -1,6 +1,6 @@
 const std = @import("std");
-const lm = @import("../../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
 const api = @import("openai-chat-api.zig");
 
 /// Options for preparing tools
@@ -105,7 +105,7 @@ pub fn freePrepareToolsResult(allocator: std.mem.Allocator, result: *PrepareTool
 
 test "prepareChatTools with function tools" {
     const allocator = std.testing.allocator;
-    const json_value = @import("../../../provider/src/json-value/index.zig");
+    const json_value = @import("provider").json_value;
 
     const schema = json_value.JsonValue{ .object = json_value.JsonObject.init(allocator) };
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const json_value = @import("../../provider/src/json-value/index.zig");
+const json_value = @import("provider").json_value;
 
 /// OpenAI API error data structure
 pub const OpenAIErrorData = struct {
@@ -158,8 +158,6 @@ pub fn handleErrorResponse(
     body: ?json_value.JsonValue,
     allocator: std.mem.Allocator,
 ) OpenAIError {
-    _ = allocator;
-
     // Try to parse error data if body is available
     if (body) |b| {
         _ = OpenAIErrorData.fromJson(b, allocator) catch {};

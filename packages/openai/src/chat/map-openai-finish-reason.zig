@@ -1,5 +1,5 @@
 const std = @import("std");
-const LanguageModelV3FinishReason = @import("../../../provider/src/language-model/v3/index.zig").LanguageModelV3FinishReason;
+const LanguageModelV3FinishReason = @import("provider").language_model.LanguageModelV3FinishReason;
 
 /// Map OpenAI finish reason to language model finish reason
 pub fn mapOpenAIFinishReason(finish_reason: ?[]const u8) LanguageModelV3FinishReason {

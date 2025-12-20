@@ -1,7 +1,7 @@
 const std = @import("std");
-const em = @import("../../../provider/src/embedding-model/v3/index.zig");
-const shared = @import("../../../provider/src/shared/v3/index.zig");
-const provider_utils = @import("../../../provider-utils/src/index.zig");
+const em = @import("provider").embedding_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
 
 const api = @import("openai-embedding-api.zig");
 const options_mod = @import("openai-embedding-options.zig");
@@ -81,11 +81,11 @@ pub const OpenAIEmbeddingModel = struct {
         }
 
         const result = self.doEmbedInternal(request_allocator, result_allocator, values, options) catch |err| {
-            callback(context, .{ .err = err });
+            callback(context, .{ .failure = err });
             return;
         };
 
-        callback(context, .{ .ok = result });
+        callback(context, .{ .success = result });
     }
 
     fn doEmbedInternal(

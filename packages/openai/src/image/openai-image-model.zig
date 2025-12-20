@@ -1,7 +1,7 @@
 const std = @import("std");
-const im = @import("../../../provider/src/image-model/v3/index.zig");
-const shared = @import("../../../provider/src/shared/v3/index.zig");
-const provider_utils = @import("../../../provider-utils/src/index.zig");
+const im = @import("provider").image_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
 
 const api = @import("openai-image-api.zig");
 const options_mod = @import("openai-image-options.zig");
@@ -65,11 +65,11 @@ pub const OpenAIImageModel = struct {
         const request_allocator = arena.allocator();
 
         const result = self.doGenerateInternal(request_allocator, result_allocator, options) catch |err| {
-            callback(context, .{ .err = err });
+            callback(context, .{ .failure = err });
             return;
         };
 
-        callback(context, .{ .ok = result });
+        callback(context, .{ .success = result });
     }
 
     fn doGenerateInternal(

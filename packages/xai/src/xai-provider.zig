@@ -1,6 +1,6 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const openai_compat = @import("../../openai-compatible/src/index.zig");
+const provider_v3 = @import("provider").provider;
+const openai_compat = @import("openai-compatible");
 
 pub const XaiProviderSettings = struct {
     base_url: ?[]const u8 = null,
@@ -70,27 +70,27 @@ pub const XaiProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn imageModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn speechModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn transcriptionModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 };
 
@@ -251,10 +251,10 @@ test "XaiProvider asProvider languageModel success" {
     const result = pv3.vtable.languageModel(pv3.impl, "grok-2");
 
     switch (result) {
-        .ok => |model| {
+        .success => |model| {
             try std.testing.expect(model.vtable != null);
         },
-        .err => |err| {
+        .failure => |err| {
             std.debug.print("Unexpected error: {}\n", .{err});
             try std.testing.expect(false);
         },
@@ -270,10 +270,10 @@ test "XaiProvider asProvider embeddingModel returns error" {
     const result = pv3.vtable.embeddingModel(pv3.impl, "test-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -288,10 +288,10 @@ test "XaiProvider asProvider imageModel returns error" {
     const result = pv3.vtable.imageModel(pv3.impl, "test-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -306,10 +306,10 @@ test "XaiProvider asProvider speechModel returns error" {
     const result = pv3.vtable.speechModel(pv3.impl, "test-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -324,10 +324,10 @@ test "XaiProvider asProvider transcriptionModel returns error" {
     const result = pv3.vtable.transcriptionModel(pv3.impl, "test-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }

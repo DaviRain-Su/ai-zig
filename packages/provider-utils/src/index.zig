@@ -15,11 +15,13 @@ pub const http = struct {
 };
 
 pub const HttpClient = http.client.HttpClient;
-pub const HttpMethod = http.client.HttpMethod;
-pub const HttpRequest = http.client.HttpRequest;
-pub const HttpResponse = http.client.HttpResponse;
-pub const HttpResponseCallbacks = http.client.HttpResponseCallbacks;
-pub const StreamingResponseCallbacks = http.client.StreamingResponseCallbacks;
+pub const HttpMethod = http.client.HttpClient.Method;
+pub const HttpRequest = http.client.HttpClient.Request;
+pub const HttpResponse = http.client.HttpClient.Response;
+pub const HttpError = http.client.HttpClient.HttpError;
+pub const HttpHeader = http.client.HttpClient.Header;
+pub const HttpStreamCallbacks = http.client.HttpClient.StreamCallbacks;
+pub const RequestBuilder = http.client.RequestBuilder;
 pub const createStdHttpClient = http.std_client.createStdHttpClient;
 
 // Streaming

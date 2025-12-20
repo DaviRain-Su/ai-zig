@@ -45,7 +45,6 @@ pub const StdHttpClient = struct {
         ctx: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        _ = self;
 
         // Parse the URL
         const uri = std.Uri.parse(req.url) catch {
@@ -152,7 +151,6 @@ pub const StdHttpClient = struct {
         callbacks: client_mod.HttpClient.StreamCallbacks,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        _ = self;
 
         // Parse the URL
         const uri = std.Uri.parse(req.url) catch {

@@ -1,6 +1,6 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
 
 const config_mod = @import("openai-compatible-config.zig");
 
@@ -84,7 +84,7 @@ pub const OpenAICompatibleChatLanguageModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        var request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
+        const request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
             callbacks.on_error(err, callbacks.context);
             return;
         };

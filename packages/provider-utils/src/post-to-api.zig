@@ -1,7 +1,7 @@
 const std = @import("std");
 const http_client = @import("http/client.zig");
-const json_value = @import("../provider/src/json-value/index.zig");
-const errors = @import("../provider/src/errors/index.zig");
+const json_value = @import("provider").json_value;
+const errors = @import("provider").errors;
 
 /// Options for posting JSON to an API
 pub const PostJsonToApiOptions = struct {
@@ -92,7 +92,7 @@ pub fn postJsonToApi(
         body_values: json_value.JsonValue,
     };
 
-    var ctx = allocator.create(CallbackContext) catch {
+    const ctx = allocator.create(CallbackContext) catch {
         callbacks.on_error(callbacks.ctx, .{
             .info = errors.ApiCallError.init(.{
                 .message = "Failed to allocate callback context",
@@ -179,7 +179,7 @@ pub fn postToApi(
         url: []const u8,
     };
 
-    var ctx = allocator.create(CallbackContext) catch {
+    const ctx = allocator.create(CallbackContext) catch {
         callbacks.on_error(callbacks.ctx, .{
             .info = errors.ApiCallError.init(.{
                 .message = "Failed to allocate callback context",
@@ -299,7 +299,7 @@ pub fn postJsonToApiStreaming(
         url: []const u8,
     };
 
-    var ctx = allocator.create(CallbackContext) catch {
+    const ctx = allocator.create(CallbackContext) catch {
         callbacks.on_error(callbacks.ctx, .{
             .info = errors.ApiCallError.init(.{
                 .message = "Failed to allocate callback context",

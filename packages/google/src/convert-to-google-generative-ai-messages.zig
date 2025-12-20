@@ -1,5 +1,5 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const lm = @import("provider").language_model;
 const prompt_types = @import("google-generative-ai-prompt.zig");
 
 /// Options for converting messages

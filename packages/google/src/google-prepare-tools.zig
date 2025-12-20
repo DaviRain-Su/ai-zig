@@ -1,6 +1,6 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
 const options = @import("google-generative-ai-options.zig");
 
 /// Tool configuration for Google API
@@ -301,9 +301,9 @@ test "prepareTools with no tools" {
 
 test "prepareTools with function tool" {
     const allocator = std.testing.allocator;
-    const json_value = @import("../../provider/src/json-value/index.zig");
+    const json_value = @import("provider").json_value;
 
-    var schema = json_value.JsonValue{ .object = json_value.JsonObject.init(allocator) };
+    const schema = json_value.JsonValue{ .object = json_value.JsonObject.init(allocator) };
 
     const tools = [_]lm.LanguageModelV3CallOptions.Tool{
         .{

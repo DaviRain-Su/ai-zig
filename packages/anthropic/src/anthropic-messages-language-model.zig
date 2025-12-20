@@ -1,8 +1,8 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
-const provider_utils = @import("../../provider-utils/src/index.zig");
-const json_value = @import("../../provider/src/json-value/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
+const json_value = @import("provider").json_value;
 
 const api = @import("anthropic-messages-api.zig");
 const options_mod = @import("anthropic-messages-options.zig");
@@ -64,11 +64,11 @@ pub const AnthropicMessagesLanguageModel = struct {
         const request_allocator = arena.allocator();
 
         const result = self.doGenerateInternal(request_allocator, result_allocator, call_options) catch |err| {
-            callback(context, .{ .err = err });
+            callback(context, .{ .failure = err });
             return;
         };
 
-        callback(context, .{ .ok = result });
+        callback(context, .{ .success = result });
     }
 
     fn doGenerateInternal(
@@ -346,14 +346,14 @@ pub const AnthropicMessagesLanguageModel = struct {
         const max_tokens = call_options.max_output_tokens orelse capabilities.max_output_tokens;
 
         // Convert messages
-        var convert_result = try convert.convertToAnthropicMessagesPrompt(request_allocator, .{
+        const convert_result = try convert.convertToAnthropicMessagesPrompt(request_allocator, .{
             .prompt = call_options.prompt,
             .send_reasoning = true,
         });
         try all_warnings.appendSlice(convert_result.warnings);
 
         // Prepare tools
-        var tools_result = try prepare_tools.prepareTools(request_allocator, .{
+        const tools_result = try prepare_tools.prepareTools(request_allocator, .{
             .tools = call_options.tools,
             .tool_choice = call_options.tool_choice,
         });

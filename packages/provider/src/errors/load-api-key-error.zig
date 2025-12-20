@@ -11,11 +11,11 @@ pub const LoadApiKeyError = struct {
     const Self = @This();
 
     /// Create a new load API key error
-    pub fn init(message: []const u8) Self {
+    pub fn init(msg: []const u8) Self {
         return Self{
             .info = .{
                 .kind = .load_api_key,
-                .message = message,
+                .message = msg,
             },
         };
     }

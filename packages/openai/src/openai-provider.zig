@@ -1,11 +1,11 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const em = @import("../../provider/src/embedding-model/v3/index.zig");
-const im = @import("../../provider/src/image-model/v3/index.zig");
-const sm = @import("../../provider/src/speech-model/v3/index.zig");
-const tm = @import("../../provider/src/transcription-model/v3/index.zig");
-const provider_utils = @import("../../provider-utils/src/index.zig");
+const provider_v3 = @import("provider").provider;
+const lm = @import("provider").language_model;
+const em = @import("provider").embedding_model;
+const im = @import("provider").image_model;
+const sm = @import("provider").speech_model;
+const tm = @import("provider").transcription_model;
+const provider_utils = @import("provider-utils");
 
 const config_mod = @import("openai-config.zig");
 const chat = @import("chat/index.zig");
@@ -194,31 +194,31 @@ pub const OpenAIProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.chat_model(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.embeddingModel(model_id);
-        return .{ .ok = model.asEmbeddingModel() };
+        return .{ .success = model.asEmbeddingModel() };
     }
 
     fn imageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.imageModel(model_id);
-        return .{ .ok = model.asImageModel() };
+        return .{ .success = model.asImageModel() };
     }
 
     fn speechModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.speechModel(model_id);
-        return .{ .ok = model.asSpeechModel() };
+        return .{ .success = model.asSpeechModel() };
     }
 
     fn transcriptionModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.transcriptionModel(model_id);
-        return .{ .ok = model.asTranscriptionModel() };
+        return .{ .success = model.asTranscriptionModel() };
     }
 };
 

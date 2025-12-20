@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_types = @import("../../../provider/src/language-model/v3/index.zig");
+const provider_types = @import("provider");
 const generate_text = @import("../generate-text/generate-text.zig");
 const generate_object = @import("generate-object.zig");
 

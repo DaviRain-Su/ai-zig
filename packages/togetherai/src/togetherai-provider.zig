@@ -1,6 +1,6 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const openai_compat = @import("../../openai-compatible/src/index.zig");
+const provider_v3 = @import("provider").provider;
+const openai_compat = @import("openai-compatible");
 
 pub const TogetherAIProviderSettings = struct {
     base_url: ?[]const u8 = null,
@@ -83,28 +83,28 @@ pub const TogetherAIProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.embeddingModel(model_id);
-        return .{ .ok = model.asEmbeddingModel() };
+        return .{ .success = model.asEmbeddingModel() };
     }
 
     fn imageModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn speechModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn transcriptionModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 };
 
@@ -272,11 +272,11 @@ test "TogetherAIProvider asProvider vtable language model" {
     const result = provider_interface.vtable.languageModel(provider_interface.impl, "test-model");
 
     switch (result) {
-        .ok => |model| {
+        .success => |model| {
             _ = model;
             // Success - model was created
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expect(false); // Should not error
             _ = err;
         },
@@ -293,11 +293,11 @@ test "TogetherAIProvider asProvider vtable embedding model" {
     const result = provider_interface.vtable.embeddingModel(provider_interface.impl, "embed-model");
 
     switch (result) {
-        .ok => |model| {
+        .success => |model| {
             _ = model;
             // Success - model was created
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expect(false); // Should not error
             _ = err;
         },
@@ -314,10 +314,10 @@ test "TogetherAIProvider asProvider vtable image model returns error" {
     const result = provider_interface.vtable.imageModel(provider_interface.impl, "image-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should error
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -333,10 +333,10 @@ test "TogetherAIProvider asProvider vtable speech model returns error" {
     const result = provider_interface.vtable.speechModel(provider_interface.impl, "speech-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should error
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -352,10 +352,10 @@ test "TogetherAIProvider asProvider vtable transcription model returns error" {
     const result = provider_interface.vtable.transcriptionModel(provider_interface.impl, "transcription-model");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should error
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }

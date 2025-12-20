@@ -1,6 +1,6 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
 const api = @import("anthropic-messages-api.zig");
 
 /// Options for converting messages

@@ -1,5 +1,5 @@
 const std = @import("std");
-const json_value = @import("../../../provider/src/json-value/index.zig");
+const json_value = @import("provider").json_value;
 
 /// OpenAI Chat completion response
 pub const OpenAIChatResponse = struct {
@@ -250,8 +250,8 @@ pub const OpenAIChatRequest = struct {
 /// Convert OpenAI usage to language model usage
 pub const OpenAIChatUsage = OpenAIChatResponse.Usage;
 
-pub fn convertOpenAIChatUsage(usage: ?OpenAIChatUsage) @import("../../../provider/src/language-model/v3/index.zig").LanguageModelV3Usage {
-    const LanguageModelV3Usage = @import("../../../provider/src/language-model/v3/index.zig").LanguageModelV3Usage;
+pub fn convertOpenAIChatUsage(usage: ?OpenAIChatUsage) @import("provider").language_model.LanguageModelV3Usage {
+    const LanguageModelV3Usage = @import("provider").language_model.LanguageModelV3Usage;
 
     if (usage) |u| {
         return .{

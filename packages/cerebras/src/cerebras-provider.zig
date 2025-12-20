@@ -1,6 +1,6 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const openai_compat = @import("../../openai-compatible/src/index.zig");
+const provider_v3 = @import("provider").provider;
+const openai_compat = @import("openai-compatible");
 
 pub const CerebrasProviderSettings = struct {
     base_url: ?[]const u8 = null,
@@ -66,27 +66,27 @@ pub const CerebrasProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn imageModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn speechModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn transcriptionModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 };
 
@@ -238,8 +238,8 @@ test "CerebrasProvider asProvider returns ProviderV3" {
     var provider = createCerebras(allocator);
     defer provider.deinit();
 
-    const provider_v3 = provider.asProvider();
-    try std.testing.expect(provider_v3.vtable != null);
+    const prov_v3 = provider.asProvider();
+    try std.testing.expect(prov_v3.vtable != null);
 }
 
 test "CerebrasProvider vtable languageModel" {
@@ -247,14 +247,14 @@ test "CerebrasProvider vtable languageModel" {
     var provider = createCerebras(allocator);
     defer provider.deinit();
 
-    var provider_v3 = provider.asProvider();
-    const result = provider_v3.vtable.languageModel(provider_v3.impl, "llama3.1-8b");
+    var prov_v3 = provider.asProvider();
+    const result = prov_v3.vtable.languageModel(prov_v3.impl, "llama3.1-8b");
 
     switch (result) {
-        .ok => |model| {
+        .success => |model| {
             try std.testing.expectEqualStrings("llama3.1-8b", model.getModelId());
         },
-        .err => |err| {
+        .failure => |err| {
             std.debug.print("Unexpected error: {}\n", .{err});
             try std.testing.expect(false);
         },
@@ -266,14 +266,14 @@ test "CerebrasProvider vtable embeddingModel returns error" {
     var provider = createCerebras(allocator);
     defer provider.deinit();
 
-    var provider_v3 = provider.asProvider();
-    const result = provider_v3.vtable.embeddingModel(provider_v3.impl, "text-embedding-3-small");
+    var prov_v3 = provider.asProvider();
+    const result = prov_v3.vtable.embeddingModel(prov_v3.impl, "text-embedding-3-small");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -284,14 +284,14 @@ test "CerebrasProvider vtable imageModel returns error" {
     var provider = createCerebras(allocator);
     defer provider.deinit();
 
-    var provider_v3 = provider.asProvider();
-    const result = provider_v3.vtable.imageModel(provider_v3.impl, "dall-e-3");
+    var prov_v3 = provider.asProvider();
+    const result = prov_v3.vtable.imageModel(prov_v3.impl, "dall-e-3");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -302,14 +302,14 @@ test "CerebrasProvider vtable speechModel returns error" {
     var provider = createCerebras(allocator);
     defer provider.deinit();
 
-    var provider_v3 = provider.asProvider();
-    const result = provider_v3.vtable.speechModel(provider_v3.impl, "tts-1");
+    var prov_v3 = provider.asProvider();
+    const result = prov_v3.vtable.speechModel(prov_v3.impl, "tts-1");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -320,14 +320,14 @@ test "CerebrasProvider vtable transcriptionModel returns error" {
     var provider = createCerebras(allocator);
     defer provider.deinit();
 
-    var provider_v3 = provider.asProvider();
-    const result = provider_v3.vtable.transcriptionModel(provider_v3.impl, "whisper-1");
+    var prov_v3 = provider.asProvider();
+    const result = prov_v3.vtable.transcriptionModel(prov_v3.impl, "whisper-1");
 
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not succeed
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }

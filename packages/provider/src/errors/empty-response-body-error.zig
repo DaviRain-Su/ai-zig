@@ -11,11 +11,11 @@ pub const EmptyResponseBodyError = struct {
     const Self = @This();
 
     /// Create a new empty response body error
-    pub fn init(message: ?[]const u8) Self {
+    pub fn init(msg: ?[]const u8) Self {
         return Self{
             .info = .{
                 .kind = .empty_response_body,
-                .message = message orelse "Empty response body",
+                .message = msg orelse "Empty response body",
             },
         };
     }

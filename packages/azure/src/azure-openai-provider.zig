@@ -1,16 +1,16 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const provider_v3 = @import("provider").provider;
+const lm = @import("provider").language_model;
 
 const config_mod = @import("azure-config.zig");
 
 // Import OpenAI models (Azure reuses them)
-const openai_chat = @import("../../openai/src/chat/openai-chat-language-model.zig");
-const openai_embed = @import("../../openai/src/embedding/openai-embedding-model.zig");
-const openai_image = @import("../../openai/src/image/openai-image-model.zig");
-const openai_speech = @import("../../openai/src/speech/openai-speech-model.zig");
-const openai_transcription = @import("../../openai/src/transcription/openai-transcription-model.zig");
-const openai_config = @import("../../openai/src/openai-config.zig");
+const openai_chat = @import("openai").chat.openai_chat_language_model;
+const openai_embed = @import("openai").embedding.openai_embedding_model;
+const openai_image = @import("openai").image.openai_image_model;
+const openai_speech = @import("openai").speech.openai_speech_model;
+const openai_transcription = @import("openai").transcription.openai_transcription_model;
+const openai_config = @import("openai").openai_config;
 
 /// Azure OpenAI Provider settings
 pub const AzureOpenAIProviderSettings = struct {
@@ -196,31 +196,31 @@ pub const AzureOpenAIProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.embeddingModel(model_id);
-        return .{ .ok = model.asEmbeddingModel() };
+        return .{ .success = model.asEmbeddingModel() };
     }
 
     fn imageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.imageModel(model_id);
-        return .{ .ok = model.asImageModel() };
+        return .{ .success = model.asImageModel() };
     }
 
     fn speechModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.speech(model_id);
-        return .{ .ok = model.asSpeechModel() };
+        return .{ .success = model.asSpeechModel() };
     }
 
     fn transcriptionModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.transcription(model_id);
-        return .{ .ok = model.asTranscriptionModel() };
+        return .{ .success = model.asTranscriptionModel() };
     }
 };
 

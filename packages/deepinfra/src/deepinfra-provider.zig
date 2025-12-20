@@ -1,6 +1,6 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const openai_compat = @import("../../openai-compatible/src/index.zig");
+const provider_v3 = @import("provider").provider;
+const openai_compat = @import("openai-compatible");
 
 pub const DeepInfraProviderSettings = struct {
     base_url: ?[]const u8 = null,
@@ -79,28 +79,28 @@ pub const DeepInfraProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.embeddingModel(model_id);
-        return .{ .ok = model.asEmbeddingModel() };
+        return .{ .success = model.asEmbeddingModel() };
     }
 
     fn imageModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn speechModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn transcriptionModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 };
 
@@ -276,10 +276,10 @@ test "DeepInfraProvider vtable languageModel" {
 
     // Should return ok result
     switch (result) {
-        .ok => {
+        .success => {
             // Success - we got a valid model
         },
-        .err => {
+        .failure => {
             try std.testing.expect(false); // Should not get an error
         },
     }
@@ -295,10 +295,10 @@ test "DeepInfraProvider vtable embeddingModel" {
 
     // Should return ok result
     switch (result) {
-        .ok => {
+        .success => {
             // Success - we got a valid model
         },
-        .err => {
+        .failure => {
             try std.testing.expect(false); // Should not get an error
         },
     }
@@ -314,10 +314,10 @@ test "DeepInfraProvider vtable imageModel returns error" {
 
     // Should return error - DeepInfra doesn't support image models via this interface
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not get ok
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -333,10 +333,10 @@ test "DeepInfraProvider vtable speechModel returns error" {
 
     // Should return error - DeepInfra doesn't support speech models
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not get ok
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -352,10 +352,10 @@ test "DeepInfraProvider vtable transcriptionModel returns error" {
 
     // Should return error - DeepInfra doesn't support transcription models
     switch (result) {
-        .ok => {
+        .success => {
             try std.testing.expect(false); // Should not get ok
         },
-        .err => |err| {
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }

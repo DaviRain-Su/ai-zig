@@ -103,13 +103,13 @@ pub const ImageOutputFormat = enum {
 /// Image background options
 pub const ImageBackground = enum {
     transparent,
-    opaque,
+    @"opaque",
     auto,
 
     pub fn toString(self: ImageBackground) []const u8 {
         return switch (self) {
             .transparent => "transparent",
-            .opaque => "opaque",
+            .@"opaque" => "opaque",
             .auto => "auto",
         };
     }

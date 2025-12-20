@@ -1,5 +1,5 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const lm = @import("provider").language_model;
 
 /// Map Cohere finish reason to language model finish reason
 pub fn mapCohereFinishReason(
@@ -14,7 +14,7 @@ pub fn mapCohereFinishReason(
     } else if (std.mem.eql(u8, reason, "MAX_TOKENS")) {
         return .length;
     } else if (std.mem.eql(u8, reason, "ERROR")) {
-        return .err;
+        return .@"error";
     } else if (std.mem.eql(u8, reason, "TOOL_CALL")) {
         return .tool_calls;
     }

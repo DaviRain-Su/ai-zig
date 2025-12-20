@@ -1,8 +1,8 @@
 const std = @import("std");
-const lm = @import("../../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../../provider/src/shared/v3/index.zig");
-const provider_utils = @import("../../../provider-utils/src/index.zig");
-const json_value = @import("../../../provider/src/json-value/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
+const json_value = @import("provider").json_value;
 
 const api = @import("openai-chat-api.zig");
 const options_mod = @import("openai-chat-options.zig");
@@ -65,11 +65,11 @@ pub const OpenAIChatLanguageModel = struct {
 
         // Build the result
         const result = self.doGenerateInternal(request_allocator, result_allocator, call_options) catch |err| {
-            callback(context, .{ .err = err });
+            callback(context, .{ .failure = err });
             return;
         };
 
-        callback(context, .{ .ok = result });
+        callback(context, .{ .success = result });
     }
 
     fn doGenerateInternal(

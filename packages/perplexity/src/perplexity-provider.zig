@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_v3 = @import("provider").v3;
+const provider_v3 = @import("provider").provider;
 const openai_compat = @import("openai-compatible");
 
 pub const PerplexityProviderSettings = struct {
@@ -66,27 +66,27 @@ pub const PerplexityProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn imageModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn speechModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn transcriptionModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 };
 
@@ -229,10 +229,10 @@ test "PerplexityProvider asProvider vtable" {
     // Test that language model works through vtable
     const result = as_provider.vtable.languageModel(as_provider.impl, "test-model");
     switch (result) {
-        .ok => |model| {
+        .success => |model| {
             try std.testing.expectEqualStrings("test-model", model.getModelId());
         },
-        .err => |err| {
+        .failure => |err| {
             return err;
         },
     }
@@ -248,8 +248,8 @@ test "PerplexityProvider vtable unsupported models return errors" {
     // Test embedding model returns error
     const embedding_result = as_provider.vtable.embeddingModel(as_provider.impl, "test-model");
     switch (embedding_result) {
-        .ok => return error.TestExpectedError,
-        .err => |err| {
+        .success => return error.TestExpectedError,
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -257,8 +257,8 @@ test "PerplexityProvider vtable unsupported models return errors" {
     // Test image model returns error
     const image_result = as_provider.vtable.imageModel(as_provider.impl, "test-model");
     switch (image_result) {
-        .ok => return error.TestExpectedError,
-        .err => |err| {
+        .success => return error.TestExpectedError,
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -266,8 +266,8 @@ test "PerplexityProvider vtable unsupported models return errors" {
     // Test speech model returns error
     const speech_result = as_provider.vtable.speechModel(as_provider.impl, "test-model");
     switch (speech_result) {
-        .ok => return error.TestExpectedError,
-        .err => |err| {
+        .success => return error.TestExpectedError,
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }
@@ -275,8 +275,8 @@ test "PerplexityProvider vtable unsupported models return errors" {
     // Test transcription model returns error
     const transcription_result = as_provider.vtable.transcriptionModel(as_provider.impl, "test-model");
     switch (transcription_result) {
-        .ok => return error.TestExpectedError,
-        .err => |err| {
+        .success => return error.TestExpectedError,
+        .failure => |err| {
             try std.testing.expectEqual(error.NoSuchModel, err);
         },
     }

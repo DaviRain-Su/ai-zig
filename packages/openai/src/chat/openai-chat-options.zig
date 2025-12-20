@@ -1,5 +1,5 @@
 const std = @import("std");
-const json_value = @import("../../../provider/src/json-value/index.zig");
+const json_value = @import("provider").json_value;
 
 /// OpenAI Chat model IDs
 /// https://platform.openai.com/docs/models

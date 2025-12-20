@@ -1,7 +1,7 @@
 const std = @import("std");
-const image = @import("../../provider/src/image-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
-const provider_utils = @import("../../provider-utils/src/index.zig");
+const image = @import("provider").image_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
 
 const config_mod = @import("google-config.zig");
 const options_mod = @import("google-generative-ai-options.zig");
@@ -171,7 +171,7 @@ pub const GoogleGenerativeAIImageModel = struct {
         // For now, return placeholder result
         // Actual implementation would make HTTP request and parse response
         const n = call_options.n orelse 1;
-        var images = result_allocator.alloc([]const u8, n) catch |err| {
+        const images = result_allocator.alloc([]const u8, n) catch |err| {
             callback(null, err, callback_context);
             return;
         };

@@ -1,6 +1,6 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
 
 const config_mod = @import("cohere-config.zig");
 const options_mod = @import("cohere-options.zig");
@@ -78,8 +78,11 @@ pub const CohereChatLanguageModel = struct {
             return;
         };
 
+        // These are used in actual implementation for HTTP request
+        // but for now we just use placeholder result
         _ = url;
         _ = headers;
+        _ = body_buffer.items;
 
         // For now, return placeholder result
         const result = lm.LanguageModelV3.GenerateResult{

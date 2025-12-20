@@ -1,7 +1,7 @@
 const std = @import("std");
 const http_client = @import("http/client.zig");
-const json_value = @import("../provider/src/json-value/index.zig");
-const errors = @import("../provider/src/errors/index.zig");
+const json_value = @import("provider").json_value;
+const errors = @import("provider").errors;
 const parse_json = @import("parse-json.zig");
 
 /// Response handler function type

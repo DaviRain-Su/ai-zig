@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_utils = @import("../../provider-utils/src/index.zig");
+const provider_utils = @import("provider-utils");
 
 /// Anthropic API configuration
 pub const AnthropicConfig = struct {

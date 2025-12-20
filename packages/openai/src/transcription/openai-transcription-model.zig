@@ -1,7 +1,7 @@
 const std = @import("std");
-const tm = @import("../../../provider/src/transcription-model/v3/index.zig");
-const shared = @import("../../../provider/src/shared/v3/index.zig");
-const provider_utils = @import("../../../provider-utils/src/index.zig");
+const tm = @import("provider").transcription_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
 
 const api = @import("openai-transcription-api.zig");
 const options_mod = @import("openai-transcription-options.zig");
@@ -60,11 +60,11 @@ pub const OpenAITranscriptionModel = struct {
         const request_allocator = arena.allocator();
 
         const result = self.doGenerateInternal(request_allocator, result_allocator, options) catch |err| {
-            callback(context, .{ .err = err });
+            callback(context, .{ .failure = err });
             return;
         };
 
-        callback(context, .{ .ok = result });
+        callback(context, .{ .success = result });
     }
 
     fn doGenerateInternal(
@@ -73,7 +73,7 @@ pub const OpenAITranscriptionModel = struct {
         result_allocator: std.mem.Allocator,
         options: GenerateOptions,
     ) !GenerateResultOk {
-        var warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
+        const warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
         _ = warnings;
 
         // Determine response format

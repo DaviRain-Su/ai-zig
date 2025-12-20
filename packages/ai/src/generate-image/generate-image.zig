@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_types = @import("../../../provider/src/image-model/v3/index.zig");
+const provider_types = @import("provider");
 
 const ImageModelV3 = provider_types.ImageModelV3;
 

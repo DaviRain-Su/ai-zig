@@ -1,7 +1,7 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const provider_utils = @import("../../provider-utils/src/index.zig");
+const provider_v3 = @import("provider").provider;
+const lm = @import("provider").language_model;
+const provider_utils = @import("provider-utils");
 
 const config_mod = @import("google-config.zig");
 const lang_model = @import("google-generative-ai-language-model.zig");
@@ -158,29 +158,29 @@ pub const GoogleGenerativeAIProvider = struct {
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.languageModel(model_id);
-        return .{ .ok = model.asLanguageModel() };
+        return .{ .success = model.asLanguageModel() };
     }
 
     fn embeddingModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.embeddingModel(model_id);
-        return .{ .ok = model.asEmbeddingModel() };
+        return .{ .success = model.asEmbeddingModel() };
     }
 
     fn imageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
         var model = self.imageModel(model_id);
-        return .{ .ok = model.asImageModel() };
+        return .{ .success = model.asImageModel() };
     }
 
     fn speechModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.SpeechModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 
     fn transcriptionModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.TranscriptionModelResult {
         _ = model_id;
-        return .{ .err = error.NoSuchModel };
+        return .{ .failure = error.NoSuchModel };
     }
 };
 

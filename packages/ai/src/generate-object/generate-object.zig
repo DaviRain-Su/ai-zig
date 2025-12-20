@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_types = @import("../../../provider/src/language-model/v3/index.zig");
+const provider_types = @import("provider");
 const generate_text = @import("../generate-text/generate-text.zig");
 
 const LanguageModelV3 = provider_types.LanguageModelV3;
@@ -226,10 +226,7 @@ test "parseJsonOutput simple object" {
     const text = "Here is the JSON: {\"name\": \"test\"}";
 
     const result = try parseJsonOutput(allocator, text);
-    defer {
-        // Clean up parsed value
-        _ = result;
-    }
+    defer _ = result; // Clean up parsed value
 
     try std.testing.expect(result == .object);
 }

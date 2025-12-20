@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_types = @import("../../../provider/src/transcription-model/v3/index.zig");
+const provider_types = @import("provider");
 
 const TranscriptionModelV3 = provider_types.TranscriptionModelV3;
 

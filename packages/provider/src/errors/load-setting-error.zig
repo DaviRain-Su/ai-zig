@@ -11,11 +11,11 @@ pub const LoadSettingError = struct {
     const Self = @This();
 
     /// Create a new load setting error
-    pub fn init(message: []const u8) Self {
+    pub fn init(msg: []const u8) Self {
         return Self{
             .info = .{
                 .kind = .load_setting,
-                .message = message,
+                .message = msg,
             },
         };
     }

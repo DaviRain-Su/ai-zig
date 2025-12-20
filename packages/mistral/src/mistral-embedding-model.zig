@@ -1,6 +1,6 @@
 const std = @import("std");
-const embedding = @import("../../provider/src/embedding-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const embedding = @import("provider").embedding_model;
+const shared = @import("provider").shared;
 
 const config_mod = @import("mistral-config.zig");
 
@@ -101,7 +101,7 @@ pub const MistralEmbeddingModel = struct {
         _ = url;
 
         // For now, return placeholder result
-        var embeddings = result_allocator.alloc([]f32, values.len) catch |err| {
+        const embeddings = result_allocator.alloc([]f32, values.len) catch |err| {
             callback(null, err, callback_context);
             return;
         };

@@ -123,7 +123,7 @@ pub const CohereRerankingModel = struct {
 
         // For now, return placeholder result
         const result_count = top_n orelse documents.len;
-        var results = result_allocator.alloc(RerankResult, result_count) catch |err| {
+        const results = result_allocator.alloc(RerankResult, result_count) catch |err| {
             callback(null, err, callback_context);
             return;
         };

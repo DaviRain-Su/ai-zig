@@ -1,6 +1,6 @@
 const std = @import("std");
-const json_value = @import("../../provider/src/json-value/index.zig");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const json_value = @import("provider").json_value;
+const lm = @import("provider").language_model;
 
 /// Anthropic Messages API Response
 pub const AnthropicMessagesResponse = struct {

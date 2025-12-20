@@ -1,6 +1,6 @@
 const std = @import("std");
 const generate_text = @import("generate-text.zig");
-const provider_types = @import("../../../provider/src/language-model/v3/index.zig");
+const provider_types = @import("provider");
 
 const LanguageModelV3 = provider_types.LanguageModelV3;
 const FinishReason = generate_text.FinishReason;

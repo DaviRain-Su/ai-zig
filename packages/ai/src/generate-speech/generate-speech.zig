@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_types = @import("../../../provider/src/speech-model/v3/index.zig");
+const provider_types = @import("provider");
 
 const SpeechModelV3 = provider_types.SpeechModelV3;
 

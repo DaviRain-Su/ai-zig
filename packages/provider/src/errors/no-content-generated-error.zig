@@ -11,11 +11,11 @@ pub const NoContentGeneratedError = struct {
     const Self = @This();
 
     /// Create a new no content generated error
-    pub fn init(message: ?[]const u8) Self {
+    pub fn init(msg: ?[]const u8) Self {
         return Self{
             .info = .{
                 .kind = .no_content_generated,
-                .message = message orelse "No content generated.",
+                .message = msg orelse "No content generated.",
             },
         };
     }

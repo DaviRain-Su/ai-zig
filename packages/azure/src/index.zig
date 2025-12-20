@@ -25,7 +25,7 @@ pub const buildAzureUrl = config.buildAzureUrl;
 pub const buildBaseUrlFromResourceName = config.buildBaseUrlFromResourceName;
 
 // Re-export OpenAI types that Azure uses
-pub const openai = @import("../../openai/src/index.zig");
+pub const openai = @import("openai");
 
 test {
     // Run all module tests

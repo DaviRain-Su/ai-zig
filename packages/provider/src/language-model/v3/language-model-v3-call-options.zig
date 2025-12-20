@@ -41,7 +41,7 @@ pub const LanguageModelV3CallOptions = struct {
     frequency_penalty: ?f32 = null,
 
     /// Response format. The output can either be text or JSON.
-    response_format: ResponseFormat = .{ .text = {} },
+    response_format: ResponseFormat = .{ .text = .{} },
 
     /// The seed (integer) to use for random sampling. If set and supported
     /// by the model, calls will generate deterministic results.
