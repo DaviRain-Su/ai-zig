@@ -452,9 +452,8 @@ pub const AnthropicMessagesLanguageModel = struct {
         context: ?*anyopaque,
     ) void {
         _ = impl;
-        _ = allocator;
         // Anthropic doesn't support URL-based file inputs
-        var empty_map = std.StringHashMap([]const []const u8).init(allocator);
+        const empty_map = std.StringHashMap([]const []const u8).init(allocator);
         callback(context, .{ .success = empty_map });
     }
 
