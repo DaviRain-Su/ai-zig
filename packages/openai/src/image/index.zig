@@ -11,6 +11,8 @@ pub const OpenAIImageProviderOptions = options.OpenAIImageProviderOptions;
 pub const Models = options.Models;
 pub const GenerateOptions = model.GenerateOptions;
 pub const GenerateResult = model.GenerateResult;
+pub const ImageData = api.OpenAIImageResponse.ImageData;
+pub const ImageUsage = api.ImageUsage;
 
 // Re-export enums
 pub const ImageSize = options.ImageSize;

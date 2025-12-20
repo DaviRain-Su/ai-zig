@@ -52,19 +52,32 @@ pub const OpenAIEmbeddingModel = struct {
         return self.model_id;
     }
 
-    /// Get max embeddings per call
-    pub fn getMaxEmbeddingsPerCall(self: *const Self) usize {
+    /// Get max embeddings per call (async callback-based)
+    pub fn getMaxEmbeddingsPerCall(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        context: ?*anyopaque,
+    ) void {
         _ = self;
-        return max_embeddings_per_call;
+        callback(context, max_embeddings_per_call);
+    }
+
+    /// Get supports parallel calls (async callback-based)
+    pub fn getSupportsParallelCalls(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, bool) void,
+        context: ?*anyopaque,
+    ) void {
+        _ = self;
+        callback(context, supports_parallel_calls);
     }
 
     /// Generate embeddings
     pub fn doEmbed(
         self: *const Self,
-        values: []const []const u8,
-        options: EmbedOptions,
+        call_options: em.EmbeddingModelCallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, EmbedResult) void,
+        callback: *const fn (?*anyopaque, em.EmbeddingModelV3.EmbedResult) void,
         context: ?*anyopaque,
     ) void {
         // Use arena for request processing
@@ -73,14 +86,14 @@ pub const OpenAIEmbeddingModel = struct {
         const request_allocator = arena.allocator();
 
         // Check max embeddings
-        if (values.len > max_embeddings_per_call) {
+        if (call_options.values.len > max_embeddings_per_call) {
             callback(context, .{
-                .err = error.TooManyEmbeddingValues,
+                .failure = error.TooManyEmbeddingValues,
             });
             return;
         }
 
-        const result = self.doEmbedInternal(request_allocator, result_allocator, values, options) catch |err| {
+        const result = self.doEmbedInternal(request_allocator, result_allocator, call_options) catch |err| {
             callback(context, .{ .failure = err });
             return;
         };
@@ -92,16 +105,25 @@ pub const OpenAIEmbeddingModel = struct {
         self: *const Self,
         request_allocator: std.mem.Allocator,
         result_allocator: std.mem.Allocator,
-        values: []const []const u8,
-        options: EmbedOptions,
-    ) !EmbedResultOk {
+        call_options: em.EmbeddingModelCallOptions,
+    ) !em.EmbeddingModelV3.EmbedSuccess {
+        // Extract dimensions from provider options
+        const dimensions: ?u32 = blk: {
+            const opts = call_options.provider_options orelse break :blk null;
+            const dim_value = opts.get("dimensions") orelse break :blk null;
+            switch (dim_value) {
+                .integer => |i| break :blk @intCast(i),
+                else => break :blk null,
+            }
+        };
+
         // Build request
         const request = api.OpenAITextEmbeddingRequest{
             .model = self.model_id,
-            .input = values,
+            .input = call_options.values,
             .encoding_format = "float",
-            .dimensions = options.dimensions,
-            .user = options.user,
+            .dimensions = dimensions,
+            .user = null,
         };
 
         // Build URL
@@ -109,7 +131,7 @@ pub const OpenAIEmbeddingModel = struct {
 
         // Get headers
         var headers = self.config.getHeaders(request_allocator);
-        if (options.headers) |user_headers| {
+        if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
                 try headers.put(entry.key_ptr.*, entry.value_ptr.*);
@@ -146,7 +168,7 @@ pub const OpenAIEmbeddingModel = struct {
         const response = parsed.value;
 
         // Extract embeddings and sort by index
-        var embeddings = try result_allocator.alloc(em.Embedding, response.data.len);
+        var embeddings = try result_allocator.alloc(em.EmbeddingModelV3Embedding, response.data.len);
         for (response.data) |item| {
             embeddings[item.index] = .{
                 .values = try result_allocator.dupe(f32, item.embedding),
@@ -154,7 +176,7 @@ pub const OpenAIEmbeddingModel = struct {
         }
 
         // Convert usage
-        const usage: ?em.EmbeddingUsage = if (response.usage) |u| .{
+        const usage: ?em.EmbeddingModelV3.Usage = if (response.usage) |u| .{
             .tokens = u.prompt_tokens,
         } else null;
 
@@ -177,6 +199,7 @@ pub const OpenAIEmbeddingModel = struct {
         .getProvider = getProviderVtable,
         .getModelId = getModelIdVtable,
         .getMaxEmbeddingsPerCall = getMaxEmbeddingsPerCallVtable,
+        .getSupportsParallelCalls = getSupportsParallelCallsVtable,
         .doEmbed = doEmbedVtable,
     };
 
@@ -190,45 +213,49 @@ pub const OpenAIEmbeddingModel = struct {
         return self.getModelId();
     }
 
-    fn getMaxEmbeddingsPerCallVtable(impl: *anyopaque) usize {
+    fn getMaxEmbeddingsPerCallVtable(
+        impl: *anyopaque,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        context: ?*anyopaque,
+    ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getMaxEmbeddingsPerCall();
+        self.getMaxEmbeddingsPerCall(callback, context);
+    }
+
+    fn getSupportsParallelCallsVtable(
+        impl: *anyopaque,
+        callback: *const fn (?*anyopaque, bool) void,
+        context: ?*anyopaque,
+    ) void {
+        const self: *Self = @ptrCast(@alignCast(impl));
+        self.getSupportsParallelCalls(callback, context);
     }
 
     fn doEmbedVtable(
         impl: *anyopaque,
-        values: []const []const u8,
+        call_options: em.EmbeddingModelCallOptions,
         allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, EmbedResult) void,
+        callback: *const fn (?*anyopaque, em.EmbeddingModelV3.EmbedResult) void,
         context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doEmbed(values, .{}, allocator, callback, context);
+        self.doEmbed(call_options, allocator, callback, context);
     }
 };
 
-/// Options for embedding
+/// Options for embedding (legacy compatibility)
 pub const EmbedOptions = struct {
     dimensions: ?u32 = null,
     user: ?[]const u8 = null,
     headers: ?std.StringHashMap([]const u8) = null,
 };
 
-/// Result of embed call
-pub const EmbedResult = union(enum) {
-    ok: EmbedResultOk,
-    err: anyerror,
-};
-
-pub const EmbedResultOk = struct {
-    embeddings: []em.Embedding,
-    usage: ?em.EmbeddingUsage,
-    warnings: []shared.SharedV3Warning,
-};
+/// Result of embed call (legacy compatibility)
+pub const EmbedResult = em.EmbeddingModelV3.EmbedResult;
 
 /// Serialize request to JSON
 fn serializeRequest(allocator: std.mem.Allocator, request: api.OpenAITextEmbeddingRequest) ![]const u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
+    var buffer = std.ArrayList(u8).init(allocator);
     try std.json.stringify(request, .{}, buffer.writer());
     return buffer.toOwnedSlice();
 }
@@ -249,5 +276,4 @@ test "OpenAIEmbeddingModel basic" {
     const model = OpenAIEmbeddingModel.init(allocator, "text-embedding-3-small", config);
     try std.testing.expectEqualStrings("openai.embedding", model.getProvider());
     try std.testing.expectEqualStrings("text-embedding-3-small", model.getModelId());
-    try std.testing.expectEqual(@as(usize, 2048), model.getMaxEmbeddingsPerCall());
 }

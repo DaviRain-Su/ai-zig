@@ -11,6 +11,7 @@ pub const OpenAIEmbeddingProviderOptions = options.OpenAIEmbeddingProviderOption
 pub const Models = options.Models;
 pub const EmbedOptions = model.EmbedOptions;
 pub const EmbedResult = model.EmbedResult;
+pub const EmbeddingUsage = api.EmbeddingUsage;
 
 // Re-export functions
 pub const getDefaultDimensions = options.getDefaultDimensions;

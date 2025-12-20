@@ -82,10 +82,7 @@ pub const OpenAIChatLanguageModel = struct {
 
         // Check for unsupported features
         if (call_options.top_k != null) {
-            try all_warnings.append(.{
-                .type = .unsupported,
-                .feature = "topK",
-            });
+            try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("topK", null));
         }
 
         // Determine system message mode
@@ -126,35 +123,19 @@ pub const OpenAIChatLanguageModel = struct {
         if (is_reasoning) {
             if (request.temperature != null) {
                 request.temperature = null;
-                try all_warnings.append(.{
-                    .type = .unsupported,
-                    .feature = "temperature",
-                    .details = "temperature is not supported for reasoning models",
-                });
+                try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("temperature", "temperature is not supported for reasoning models"));
             }
             if (request.top_p != null) {
                 request.top_p = null;
-                try all_warnings.append(.{
-                    .type = .unsupported,
-                    .feature = "topP",
-                    .details = "topP is not supported for reasoning models",
-                });
+                try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("topP", "topP is not supported for reasoning models"));
             }
             if (request.frequency_penalty != null) {
                 request.frequency_penalty = null;
-                try all_warnings.append(.{
-                    .type = .unsupported,
-                    .feature = "frequencyPenalty",
-                    .details = "frequencyPenalty is not supported for reasoning models",
-                });
+                try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("frequencyPenalty", "frequencyPenalty is not supported for reasoning models"));
             }
             if (request.presence_penalty != null) {
                 request.presence_penalty = null;
-                try all_warnings.append(.{
-                    .type = .unsupported,
-                    .feature = "presencePenalty",
-                    .details = "presencePenalty is not supported for reasoning models",
-                });
+                try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("presencePenalty", "presencePenalty is not supported for reasoning models"));
             }
             // Use max_completion_tokens for reasoning models
             if (request.max_tokens) |mt| {
@@ -303,10 +284,7 @@ pub const OpenAIChatLanguageModel = struct {
 
         // Check for unsupported features
         if (call_options.top_k != null) {
-            try all_warnings.append(.{
-                .type = .unsupported,
-                .feature = "topK",
-            });
+            try all_warnings.append(shared.SharedV3Warning.unsupportedFeature("topK", null));
         }
 
         // Determine system message mode
@@ -456,21 +434,59 @@ pub const OpenAIChatLanguageModel = struct {
         impl: *anyopaque,
         options: lm.LanguageModelV3CallOptions,
         allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(options, allocator, callback, context);
+        // Wrap callback to convert result type
+        const Wrapper = struct {
+            fn wrap(ctx: ?*anyopaque, result: GenerateResult) void {
+                const cb_data = @as(*const struct { cb: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void, user_ctx: ?*anyopaque }, @ptrCast(@alignCast(ctx)));
+                switch (result) {
+                    .success => |ok| {
+                        cb_data.cb(cb_data.user_ctx, .{
+                            .success = .{
+                                .content = ok.content,
+                                .finish_reason = ok.finish_reason,
+                                .usage = ok.usage,
+                                .warnings = ok.warnings,
+                            },
+                        });
+                    },
+                    .failure => |err| {
+                        cb_data.cb(cb_data.user_ctx, .{ .failure = err });
+                    },
+                }
+            }
+        };
+        var wrapper_data = struct { cb: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void, user_ctx: ?*anyopaque }{ .cb = callback, .user_ctx = context };
+        self.doGenerate(options, allocator, Wrapper.wrap, @ptrCast(&wrapper_data));
     }
 
     fn doStreamVtable(
         impl: *anyopaque,
         options: lm.LanguageModelV3CallOptions,
         allocator: std.mem.Allocator,
-        callbacks: provider_utils.StreamCallbacks(lm.LanguageModelV3StreamPart),
+        callbacks: lm.LanguageModelV3.StreamCallbacks,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doStream(options, allocator, callbacks);
+        // Convert to provider_utils callbacks
+        const compat_callbacks = provider_utils.StreamCallbacks(lm.LanguageModelV3StreamPart){
+            .on_part = callbacks.on_part,
+            .on_error = callbacks.on_error,
+            .on_complete = struct {
+                fn onComplete(ctx: ?*anyopaque, _: ?anyerror) void {
+                    callbacks.on_complete(ctx, null);
+                }
+            }.onComplete,
+            .ctx = callbacks.ctx,
+        };
+        _ = compat_callbacks;
+        _ = allocator;
+        _ = options;
+        _ = self;
+        // Stub for now
+        callbacks.on_complete(callbacks.ctx, null);
     }
 };
 

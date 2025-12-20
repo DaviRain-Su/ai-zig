@@ -52,7 +52,7 @@ fn convertMessage(
     allocator: std.mem.Allocator,
     message: lm.LanguageModelV3Message,
     system_mode: ConvertOptions.SystemMessageMode,
-    warnings: *std.ArrayList(shared.SharedV3Warning),
+    warnings: *std.array_list.Managed(shared.SharedV3Warning),
 ) !?api.OpenAIChatRequest.RequestMessage {
     _ = warnings;
 
@@ -120,18 +120,13 @@ fn convertMessage(
                         }
                     },
                     .tool_call => |tc| {
-                        // Convert to JSON string for input
-                        const input_str = switch (tc.input) {
-                            .object => |obj| try obj.stringify(allocator),
-                            else => "{}",
-                        };
-
+                        // input is already stringified JSON
                         try tool_calls.append(.{
                             .id = tc.tool_call_id,
                             .type = "function",
                             .function = .{
                                 .name = tc.tool_name,
-                                .arguments = input_str,
+                                .arguments = tc.input,
                             },
                         });
                     },

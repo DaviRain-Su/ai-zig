@@ -46,17 +46,22 @@ pub const OpenAIImageModel = struct {
         return self.model_id;
     }
 
-    /// Get max images per call
-    pub fn getMaxImagesPerCall(self: *const Self) usize {
-        return options_mod.modelMaxImagesPerCall(self.model_id);
+    /// Get max images per call (async callback-based)
+    pub fn getMaxImagesPerCall(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        context: ?*anyopaque,
+    ) void {
+        const max_images = options_mod.modelMaxImagesPerCall(self.model_id);
+        callback(context, @intCast(max_images));
     }
 
     /// Generate images
     pub fn doGenerate(
         self: *const Self,
-        options: GenerateOptions,
+        call_options: im.ImageModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, im.ImageModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         // Use arena for request processing
@@ -64,7 +69,7 @@ pub const OpenAIImageModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        const result = self.doGenerateInternal(request_allocator, result_allocator, options) catch |err| {
+        const result = self.doGenerateInternal(request_allocator, result_allocator, call_options) catch |err| {
             callback(context, .{ .failure = err });
             return;
         };
@@ -76,38 +81,32 @@ pub const OpenAIImageModel = struct {
         self: *const Self,
         request_allocator: std.mem.Allocator,
         result_allocator: std.mem.Allocator,
-        options: GenerateOptions,
-    ) !GenerateResultOk {
-        var warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
+        call_options: im.ImageModelV3CallOptions,
+    ) !im.ImageModelV3.GenerateSuccess {
+        const timestamp = std.time.milliTimestamp();
+        var warnings: std.ArrayList(shared.SharedV3Warning) = .empty;
 
         // Check for unsupported features
-        if (options.aspect_ratio != null) {
-            try warnings.append(.{
-                .type = .unsupported,
-                .feature = "aspectRatio",
-                .details = "This model does not support aspect ratio. Use `size` instead.",
-            });
+        if (call_options.aspect_ratio != null) {
+            try warnings.append(request_allocator, shared.SharedV3Warning.unsupportedFeature("aspectRatio", "This model does not support aspect ratio. Use `size` instead."));
         }
 
-        if (options.seed != null) {
-            try warnings.append(.{
-                .type = .unsupported,
-                .feature = "seed",
-            });
+        if (call_options.seed != null) {
+            try warnings.append(request_allocator, shared.SharedV3Warning.unsupportedFeature("seed", null));
         }
 
         // Build request
         var request = api.OpenAIImageGenerationRequest{
             .model = self.model_id,
-            .prompt = options.prompt,
-            .n = options.n,
-            .size = options.size,
-            .quality = if (options.quality) |q| q.toString() else null,
-            .style = if (options.style) |s| s.toString() else null,
-            .user = options.user,
-            .background = if (options.background) |b| b.toString() else null,
-            .output_format = if (options.output_format) |f| f.toString() else null,
-            .output_compression = options.output_compression,
+            .prompt = call_options.prompt orelse return error.MissingPrompt,
+            .n = call_options.n,
+            .size = if (call_options.size) |s| try s.format(request_allocator) else null,
+            .quality = null,
+            .style = null,
+            .user = null,
+            .background = null,
+            .output_format = null,
+            .output_compression = null,
         };
 
         // Set response format for models that need it
@@ -119,8 +118,8 @@ pub const OpenAIImageModel = struct {
         const url = try self.config.buildUrl(request_allocator, "/images/generations", self.model_id);
 
         // Get headers
-        var headers = self.config.getHeaders(request_allocator);
-        if (options.headers) |user_headers| {
+        var headers = self.config.getHeaders();
+        if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
                 try headers.put(entry.key_ptr.*, entry.value_ptr.*);
@@ -156,12 +155,10 @@ pub const OpenAIImageModel = struct {
         };
         const response = parsed.value;
 
-        // Extract images
-        var images = try result_allocator.alloc(im.ImageData, response.data.len);
+        // Extract images as base64
+        var images_list = try result_allocator.alloc([]const u8, response.data.len);
         for (response.data, 0..) |item, i| {
-            images[i] = .{
-                .base64 = try result_allocator.dupe(u8, item.b64_json),
-            };
+            images_list[i] = try result_allocator.dupe(u8, item.b64_json);
         }
 
         // Convert usage
@@ -178,10 +175,14 @@ pub const OpenAIImageModel = struct {
         }
 
         return .{
-            .images = images,
+            .images = .{ .base64 = images_list },
             .usage = usage,
             .warnings = result_warnings,
-            .model_id = try result_allocator.dupe(u8, self.model_id),
+            .response = .{
+                .timestamp = timestamp,
+                .model_id = try result_allocator.dupe(u8, self.model_id),
+                .headers = response_headers,
+            },
         };
     }
 
@@ -210,26 +211,24 @@ pub const OpenAIImageModel = struct {
         return self.getModelId();
     }
 
-    fn getMaxImagesPerCallVtable(impl: *anyopaque) usize {
+    fn getMaxImagesPerCallVtable(
+        impl: *anyopaque,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        context: ?*anyopaque,
+    ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getMaxImagesPerCall();
+        self.getMaxImagesPerCall(callback, context);
     }
 
     fn doGenerateVtable(
         impl: *anyopaque,
         call_options: im.ImageModelV3CallOptions,
         allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, im.ImageModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(.{
-            .prompt = call_options.prompt,
-            .n = call_options.n,
-            .size = call_options.size,
-            .aspect_ratio = call_options.aspect_ratio,
-            .seed = call_options.seed,
-        }, allocator, callback, context);
+        self.doGenerate(call_options, allocator, callback, context);
     }
 };
 
@@ -249,24 +248,12 @@ pub const GenerateOptions = struct {
     headers: ?std.StringHashMap([]const u8) = null,
 };
 
-/// Result of generate call
-pub const GenerateResult = union(enum) {
-    ok: GenerateResultOk,
-    err: anyerror,
-};
-
-pub const GenerateResultOk = struct {
-    images: []im.ImageData,
-    usage: ?im.ImageModelV3Usage,
-    warnings: []shared.SharedV3Warning,
-    model_id: []const u8,
-};
+/// Result of generate call (legacy compatibility)
+pub const GenerateResult = im.ImageModelV3.GenerateResult;
 
 /// Serialize request to JSON
 fn serializeRequest(allocator: std.mem.Allocator, request: api.OpenAIImageGenerationRequest) ![]const u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    try std.json.stringify(request, .{}, buffer.writer());
-    return buffer.toOwnedSlice();
+    return std.json.Stringify.valueAlloc(allocator, request, .{});
 }
 
 test "OpenAIImageModel basic" {
@@ -285,5 +272,4 @@ test "OpenAIImageModel basic" {
     const model = OpenAIImageModel.init(allocator, "dall-e-3", config);
     try std.testing.expectEqualStrings("openai.image", model.getProvider());
     try std.testing.expectEqualStrings("dall-e-3", model.getModelId());
-    try std.testing.expectEqual(@as(usize, 1), model.getMaxImagesPerCall());
 }

@@ -49,9 +49,9 @@ pub const OpenAITranscriptionModel = struct {
     /// Generate transcription
     pub fn doGenerate(
         self: *const Self,
-        options: GenerateOptions,
+        call_options: tm.TranscriptionModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, tm.TranscriptionModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         // Use arena for request processing
@@ -59,7 +59,7 @@ pub const OpenAITranscriptionModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        const result = self.doGenerateInternal(request_allocator, result_allocator, options) catch |err| {
+        const result = self.doGenerateInternal(request_allocator, result_allocator, call_options) catch |err| {
             callback(context, .{ .failure = err });
             return;
         };
@@ -71,9 +71,10 @@ pub const OpenAITranscriptionModel = struct {
         self: *const Self,
         request_allocator: std.mem.Allocator,
         result_allocator: std.mem.Allocator,
-        options: GenerateOptions,
-    ) !GenerateResultOk {
-        const warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
+        call_options: tm.TranscriptionModelV3CallOptions,
+    ) !tm.TranscriptionModelV3.GenerateSuccess {
+        const timestamp = std.time.milliTimestamp();
+        const warnings: std.ArrayList(shared.SharedV3Warning) = .empty;
         _ = warnings;
 
         // Determine response format
@@ -87,9 +88,21 @@ pub const OpenAITranscriptionModel = struct {
         // Build URL
         const url = try self.config.buildUrl(request_allocator, "/audio/transcriptions", self.model_id);
 
+        // Extract audio data from union
+        const audio_binary = switch (call_options.audio) {
+            .binary => |data| data,
+            .base64 => |b64| blk: {
+                // Decode base64 if needed
+                const decoder = std.base64.standard.Decoder;
+                const decoded = try request_allocator.alloc(u8, try decoder.calcSizeForSlice(b64));
+                _ = try decoder.decode(decoded, b64);
+                break :blk decoded;
+            },
+        };
+
         // Get headers
-        var headers = self.config.getHeaders(request_allocator);
-        if (options.headers) |user_headers| {
+        var headers = self.config.getHeaders();
+        if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
                 try headers.put(entry.key_ptr.*, entry.value_ptr.*);
@@ -111,9 +124,9 @@ pub const OpenAITranscriptionModel = struct {
         // Add file
         try form_parts.append(.{
             .name = "file",
-            .value = .{ .binary = options.audio },
+            .value = .{ .binary = audio_binary },
             .filename = "audio.mp3",
-            .content_type = options.media_type,
+            .content_type = call_options.media_type,
         });
 
         // Add response format
@@ -122,28 +135,36 @@ pub const OpenAITranscriptionModel = struct {
             .value = .{ .text = response_format },
         });
 
-        // Add optional fields
-        if (options.language) |lang| {
-            try form_parts.append(.{
-                .name = "language",
-                .value = .{ .text = lang },
-            });
-        }
+        // Add optional fields from provider_options
+        if (call_options.provider_options) |opts| {
+            if (opts.get("language")) |lang_value| {
+                if (lang_value == .string) {
+                    try form_parts.append(.{
+                        .name = "language",
+                        .value = .{ .text = lang_value.string },
+                    });
+                }
+            }
 
-        if (options.prompt) |prompt| {
-            try form_parts.append(.{
-                .name = "prompt",
-                .value = .{ .text = prompt },
-            });
-        }
+            if (opts.get("prompt")) |prompt_value| {
+                if (prompt_value == .string) {
+                    try form_parts.append(.{
+                        .name = "prompt",
+                        .value = .{ .text = prompt_value.string },
+                    });
+                }
+            }
 
-        if (options.temperature) |temp| {
-            var temp_buf: [32]u8 = undefined;
-            const temp_str = std.fmt.bufPrint(&temp_buf, "{d}", .{temp}) catch "0";
-            try form_parts.append(.{
-                .name = "temperature",
-                .value = .{ .text = temp_str },
-            });
+            if (opts.get("temperature")) |temp_value| {
+                if (temp_value == .float) {
+                    var temp_buf: [32]u8 = undefined;
+                    const temp_str = std.fmt.bufPrint(&temp_buf, "{d}", .{temp_value.float}) catch "0";
+                    try form_parts.append(.{
+                        .name = "temperature",
+                        .value = .{ .text = temp_str },
+                    });
+                }
+            }
         }
 
         // Build multipart body
@@ -177,8 +198,27 @@ pub const OpenAITranscriptionModel = struct {
         };
         const response = parsed.value;
 
-        // Convert segments
-        const segments = try api.convertSegments(result_allocator, response);
+        // Convert segments to tm.TranscriptionSegment
+        var segments: []tm.TranscriptionSegment = &[_]tm.TranscriptionSegment{};
+        if (response.segments) |resp_segments| {
+            segments = try result_allocator.alloc(tm.TranscriptionSegment, resp_segments.len);
+            for (resp_segments, 0..) |seg, i| {
+                segments[i] = .{
+                    .text = try result_allocator.dupe(u8, seg.text),
+                    .start_second = seg.start,
+                    .end_second = seg.end,
+                };
+            }
+        } else if (response.words) |words| {
+            segments = try result_allocator.alloc(tm.TranscriptionSegment, words.len);
+            for (words, 0..) |word, i| {
+                segments[i] = .{
+                    .text = try result_allocator.dupe(u8, word.word),
+                    .start_second = word.start,
+                    .end_second = word.end,
+                };
+            }
+        }
 
         // Get language code
         const language: ?[]const u8 = if (response.language) |lang|
@@ -190,9 +230,13 @@ pub const OpenAITranscriptionModel = struct {
             .text = try result_allocator.dupe(u8, response.text),
             .segments = segments,
             .language = language,
-            .duration_seconds = response.duration,
+            .duration_in_seconds = response.duration,
             .warnings = &[_]shared.SharedV3Warning{},
-            .model_id = try result_allocator.dupe(u8, self.model_id),
+            .response = .{
+                .timestamp = timestamp,
+                .model_id = try result_allocator.dupe(u8, self.model_id),
+                .headers = response_headers,
+            },
         };
     }
 
@@ -224,14 +268,11 @@ pub const OpenAITranscriptionModel = struct {
         impl: *anyopaque,
         call_options: tm.TranscriptionModelV3CallOptions,
         allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, tm.TranscriptionModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(.{
-            .audio = call_options.audio,
-            .media_type = call_options.media_type,
-        }, allocator, callback, context);
+        self.doGenerate(call_options, allocator, callback, context);
     }
 };
 
@@ -245,20 +286,8 @@ pub const GenerateOptions = struct {
     headers: ?std.StringHashMap([]const u8) = null,
 };
 
-/// Result of generate call
-pub const GenerateResult = union(enum) {
-    ok: GenerateResultOk,
-    err: anyerror,
-};
-
-pub const GenerateResultOk = struct {
-    text: []const u8,
-    segments: []api.TranscriptionSegment,
-    language: ?[]const u8,
-    duration_seconds: ?f64,
-    warnings: []shared.SharedV3Warning,
-    model_id: []const u8,
-};
+/// Result of generate call (legacy compatibility)
+pub const GenerateResult = tm.TranscriptionModelV3.GenerateResult;
 
 /// Form part for multipart encoding
 const FormPart = struct {

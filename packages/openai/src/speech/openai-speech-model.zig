@@ -49,9 +49,9 @@ pub const OpenAISpeechModel = struct {
     /// Generate speech
     pub fn doGenerate(
         self: *const Self,
-        options: GenerateOptions,
+        call_options: sm.SpeechModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, sm.SpeechModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         // Use arena for request processing
@@ -59,7 +59,7 @@ pub const OpenAISpeechModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        const result = self.doGenerateInternal(request_allocator, result_allocator, options) catch |err| {
+        const result = self.doGenerateInternal(request_allocator, result_allocator, call_options) catch |err| {
             callback(context, .{ .failure = err });
             return;
         };
@@ -71,52 +71,45 @@ pub const OpenAISpeechModel = struct {
         self: *const Self,
         request_allocator: std.mem.Allocator,
         result_allocator: std.mem.Allocator,
-        options: GenerateOptions,
-    ) !GenerateResultOk {
-        var warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
+        call_options: sm.SpeechModelV3CallOptions,
+    ) !sm.SpeechModelV3.GenerateSuccess {
+        const timestamp = std.time.milliTimestamp();
+        var warnings: std.ArrayList(shared.SharedV3Warning) = .empty;
 
         // Determine voice
-        const voice = if (options.voice) |v| v.toString() else "alloy";
+        const voice = call_options.voice orelse "alloy";
 
         // Determine output format
         var output_format: []const u8 = "mp3";
-        if (options.output_format) |fmt| {
+        if (call_options.output_format) |fmt| {
             if (options_mod.isSupportedOutputFormat(fmt)) {
                 output_format = fmt;
             } else {
-                try warnings.append(.{
-                    .type = .unsupported,
-                    .feature = "outputFormat",
-                    .details = "Unsupported output format. Using mp3 instead.",
-                });
+                try warnings.append(request_allocator, shared.SharedV3Warning.unsupportedFeature("outputFormat", "Unsupported output format. Using mp3 instead."));
             }
         }
 
         // Check for unsupported language
-        if (options.language != null) {
-            try warnings.append(.{
-                .type = .unsupported,
-                .feature = "language",
-                .details = "OpenAI speech models do not support language selection.",
-            });
+        if (call_options.language != null) {
+            try warnings.append(request_allocator, shared.SharedV3Warning.unsupportedFeature("language", "OpenAI speech models do not support language selection."));
         }
 
         // Build request
         const request = api.OpenAISpeechRequest{
             .model = self.model_id,
-            .input = options.text,
+            .input = call_options.text,
             .voice = voice,
             .response_format = output_format,
-            .speed = options.speed,
-            .instructions = options.instructions,
+            .speed = call_options.speed,
+            .instructions = call_options.instructions,
         };
 
         // Build URL
         const url = try self.config.buildUrl(request_allocator, "/audio/speech", self.model_id);
 
         // Get headers
-        var headers = self.config.getHeaders(request_allocator);
-        if (options.headers) |user_headers| {
+        var headers = self.config.getHeaders();
+        if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
                 try headers.put(entry.key_ptr.*, entry.value_ptr.*);
@@ -153,9 +146,13 @@ pub const OpenAISpeechModel = struct {
         }
 
         return .{
-            .audio = try result_allocator.dupe(u8, audio_data),
+            .audio = .{ .binary = try result_allocator.dupe(u8, audio_data) },
             .warnings = result_warnings,
-            .model_id = try result_allocator.dupe(u8, self.model_id),
+            .response = .{
+                .timestamp = timestamp,
+                .model_id = try result_allocator.dupe(u8, self.model_id),
+                .headers = response_headers,
+            },
         };
     }
 
@@ -187,18 +184,11 @@ pub const OpenAISpeechModel = struct {
         impl: *anyopaque,
         call_options: sm.SpeechModelV3CallOptions,
         allocator: std.mem.Allocator,
-        callback: *const fn (?*anyopaque, GenerateResult) void,
+        callback: *const fn (?*anyopaque, sm.SpeechModelV3.GenerateResult) void,
         context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(.{
-            .text = call_options.text,
-            .voice = if (call_options.voice) |v| options_mod.Voice.fromString(v) else null,
-            .output_format = call_options.output_format,
-            .speed = call_options.speed,
-            .language = call_options.language,
-            .instructions = call_options.instructions,
-        }, allocator, callback, context);
+        self.doGenerate(call_options, allocator, callback, context);
     }
 };
 
@@ -213,23 +203,12 @@ pub const GenerateOptions = struct {
     headers: ?std.StringHashMap([]const u8) = null,
 };
 
-/// Result of generate call
-pub const GenerateResult = union(enum) {
-    ok: GenerateResultOk,
-    err: anyerror,
-};
-
-pub const GenerateResultOk = struct {
-    audio: []const u8,
-    warnings: []shared.SharedV3Warning,
-    model_id: []const u8,
-};
+/// Result of generate call (legacy compatibility)
+pub const GenerateResult = sm.SpeechModelV3.GenerateResult;
 
 /// Serialize request to JSON
 fn serializeRequest(allocator: std.mem.Allocator, request: api.OpenAISpeechRequest) ![]const u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    try std.json.stringify(request, .{}, buffer.writer());
-    return buffer.toOwnedSlice();
+    return std.json.Stringify.valueAlloc(allocator, request, .{});
 }
 
 test "OpenAISpeechModel basic" {
