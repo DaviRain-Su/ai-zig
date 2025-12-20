@@ -40,10 +40,10 @@ pub const MistralChatLanguageModel = struct {
 
     /// Generate content (non-streaming)
     pub fn doGenerate(
-        self: *Self,
+        self: *const Self,
         call_options: lm.LanguageModelV3CallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?lm.LanguageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void,
         callback_context: ?*anyopaque,
     ) void {
         // Use arena for request processing
@@ -53,7 +53,7 @@ pub const MistralChatLanguageModel = struct {
 
         // Build the request body
         const request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -62,7 +62,7 @@ pub const MistralChatLanguageModel = struct {
             request_allocator,
             self.config.base_url,
         ) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -73,9 +73,9 @@ pub const MistralChatLanguageModel = struct {
         }
 
         // Serialize request body
-        var body_buffer = std.array_list.Managed(u8).init(request_allocator);
+        var body_buffer = std.ArrayList(u8).init(request_allocator);
         std.json.stringify(request_body, .{}, body_buffer.writer()) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -84,7 +84,7 @@ pub const MistralChatLanguageModel = struct {
         _ = body_buffer;
 
         // For now, return placeholder result
-        const result = lm.LanguageModelV3.GenerateResult{
+        const result = lm.LanguageModelV3.GenerateSuccess{
             .content = &[_]lm.LanguageModelV3Content{},
             .finish_reason = .stop,
             .usage = .{
@@ -95,12 +95,12 @@ pub const MistralChatLanguageModel = struct {
         };
 
         _ = result_allocator;
-        callback(result, null, callback_context);
+        callback(callback_context, .{ .success = result });
     }
 
     /// Stream content
     pub fn doStream(
-        self: *Self,
+        self: *const Self,
         call_options: lm.LanguageModelV3CallOptions,
         result_allocator: std.mem.Allocator,
         callbacks: lm.LanguageModelV3.StreamCallbacks,
@@ -112,14 +112,14 @@ pub const MistralChatLanguageModel = struct {
 
         // Build the request body with streaming enabled
         var request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
-            callbacks.on_error(err, callbacks.context);
+            callbacks.on_error(callbacks.ctx, err);
             return;
         };
 
         // Add stream flag
         if (request_body == .object) {
             request_body.object.put("stream", .{ .bool = true }) catch |err| {
-                callbacks.on_error(err, callbacks.context);
+                callbacks.on_error(callbacks.ctx, err);
                 return;
             };
         }
@@ -129,18 +129,15 @@ pub const MistralChatLanguageModel = struct {
             request_allocator,
             self.config.base_url,
         ) catch |err| {
-            callbacks.on_error(err, callbacks.context);
+            callbacks.on_error(callbacks.ctx, err);
             return;
         };
 
         _ = url;
         _ = result_allocator;
 
-        // Emit stream start
-        callbacks.on_part(.{ .stream_start = .{} }, callbacks.context);
-
         // For now, emit completion
-        callbacks.on_part(.{
+        callbacks.on_part(callbacks.ctx, .{
             .finish = .{
                 .finish_reason = .stop,
                 .usage = .{
@@ -148,14 +145,14 @@ pub const MistralChatLanguageModel = struct {
                     .completion_tokens = 0,
                 },
             },
-        }, callbacks.context);
+        });
 
-        callbacks.on_complete(callbacks.context);
+        callbacks.on_complete(callbacks.ctx, null);
     }
 
     /// Build the request body for the chat completions API
     fn buildRequestBody(
-        self: *Self,
+        self: *const Self,
         allocator: std.mem.Allocator,
         call_options: lm.LanguageModelV3CallOptions,
     ) !std.json.Value {
@@ -334,50 +331,21 @@ pub const MistralChatLanguageModel = struct {
         return .{ .object = body };
     }
 
+    /// Get supported URLs (stub implementation)
+    pub fn getSupportedUrls(
+        self: *const Self,
+        allocator: std.mem.Allocator,
+        callback: *const fn (?*anyopaque, lm.LanguageModelV3.SupportedUrlsResult) void,
+        ctx: ?*anyopaque,
+    ) void {
+        _ = self;
+        _ = allocator;
+        callback(ctx, .{ .success = std.StringHashMap([]const []const u8).init(allocator) });
+    }
+
     /// Convert to LanguageModelV3 interface
     pub fn asLanguageModel(self: *Self) lm.LanguageModelV3 {
-        return .{
-            .vtable = &vtable,
-            .impl = self,
-        };
-    }
-
-    const vtable = lm.LanguageModelV3.VTable{
-        .doGenerate = doGenerateVtable,
-        .doStream = doStreamVtable,
-        .getModelId = getModelIdVtable,
-        .getProvider = getProviderVtable,
-    };
-
-    fn doGenerateVtable(
-        impl: *anyopaque,
-        call_options: lm.LanguageModelV3CallOptions,
-        result_allocator: std.mem.Allocator,
-        callback: *const fn (?lm.LanguageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
-        callback_context: ?*anyopaque,
-    ) void {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(call_options, result_allocator, callback, callback_context);
-    }
-
-    fn doStreamVtable(
-        impl: *anyopaque,
-        call_options: lm.LanguageModelV3CallOptions,
-        result_allocator: std.mem.Allocator,
-        callbacks: lm.LanguageModelV3.StreamCallbacks,
-    ) void {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        self.doStream(call_options, result_allocator, callbacks);
-    }
-
-    fn getModelIdVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getModelId();
-    }
-
-    fn getProviderVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getProvider();
+        return lm.asLanguageModel(Self, self);
     }
 };
 
