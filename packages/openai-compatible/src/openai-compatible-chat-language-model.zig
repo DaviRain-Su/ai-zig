@@ -81,31 +81,32 @@ pub const OpenAICompatibleChatLanguageModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        const request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
-            callbacks.on_error(err, callbacks.context);
+        var request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
+            callbacks.on_error(callbacks.ctx, err);
             return;
         };
 
         if (request_body == .object) {
-            request_body.object.put("stream", .{ .bool = true }) catch |err| {
-                callbacks.on_error(err, callbacks.context);
+            var obj = &request_body.object;
+            obj.put("stream", .{ .bool = true }) catch |err| {
+                callbacks.on_error(callbacks.ctx, err);
                 return;
             };
         }
 
         _ = result_allocator;
 
-        callbacks.on_part(.{ .stream_start = .{} }, callbacks.context);
-        callbacks.on_part(.{
+        callbacks.on_part(callbacks.ctx, .{ .stream_start = .{ .warnings = &[_]shared.SharedV3Warning{} } });
+        callbacks.on_part(callbacks.ctx, .{
             .finish = .{
                 .finish_reason = .stop,
                 .usage = .{
-                    .prompt_tokens = 0,
-                    .completion_tokens = 0,
+                    .input_tokens = .{ .total = 0 },
+                    .output_tokens = .{ .total = 0 },
                 },
             },
-        }, callbacks.context);
-        callbacks.on_complete(callbacks.context);
+        });
+        callbacks.on_complete(callbacks.ctx, null);
     }
 
     fn buildRequestBody(
