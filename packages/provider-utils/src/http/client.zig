@@ -179,7 +179,8 @@ pub const HttpClient = struct {
 /// Builder for constructing HTTP requests
 pub const RequestBuilder = struct {
     request: HttpClient.Request,
-    headers_list: std.ArrayList(HttpClient.Header),
+    headers_list: std.ArrayListUnmanaged(HttpClient.Header),
+    allocator: std.mem.Allocator,
 
     const Self = @This();
 
@@ -190,12 +191,13 @@ pub const RequestBuilder = struct {
                 .url = "",
                 .headers = &.{},
             },
-            .headers_list = std.ArrayList(HttpClient.Header).init(allocator),
+            .headers_list = .{},
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.headers_list.deinit();
+        self.headers_list.deinit(self.allocator);
     }
 
     pub fn method(self: *Self, m: HttpClient.Method) *Self {
@@ -209,7 +211,7 @@ pub const RequestBuilder = struct {
     }
 
     pub fn header(self: *Self, name: []const u8, value: []const u8) !*Self {
-        try self.headers_list.append(.{ .name = name, .value = value });
+        try self.headers_list.append(self.allocator, .{ .name = name, .value = value });
         self.request.headers = self.headers_list.items;
         return self;
     }
@@ -267,4 +269,181 @@ test "Response helpers" {
     try std.testing.expectEqualStrings("application/json", response.getHeader("content-type").?);
     try std.testing.expectEqualStrings("abc123", response.getHeader("X-Request-Id").?);
     try std.testing.expect(response.getHeader("X-Missing") == null);
+}
+
+test "Response status code helpers" {
+    const success_response = HttpClient.Response{
+        .status_code = 201,
+        .headers = &.{},
+        .body = "",
+    };
+    try std.testing.expect(success_response.isSuccess());
+    try std.testing.expect(!success_response.isClientError());
+    try std.testing.expect(!success_response.isServerError());
+
+    const client_error_response = HttpClient.Response{
+        .status_code = 404,
+        .headers = &.{},
+        .body = "",
+    };
+    try std.testing.expect(!client_error_response.isSuccess());
+    try std.testing.expect(client_error_response.isClientError());
+    try std.testing.expect(!client_error_response.isServerError());
+
+    const server_error_response = HttpClient.Response{
+        .status_code = 500,
+        .headers = &.{},
+        .body = "",
+    };
+    try std.testing.expect(!server_error_response.isSuccess());
+    try std.testing.expect(!server_error_response.isClientError());
+    try std.testing.expect(server_error_response.isServerError());
+
+    const redirect_response = HttpClient.Response{
+        .status_code = 301,
+        .headers = &.{},
+        .body = "",
+    };
+    try std.testing.expect(!redirect_response.isSuccess());
+    try std.testing.expect(!redirect_response.isClientError());
+    try std.testing.expect(!redirect_response.isServerError());
+}
+
+test "Method toString" {
+    try std.testing.expectEqualStrings("GET", HttpClient.Method.GET.toString());
+    try std.testing.expectEqualStrings("POST", HttpClient.Method.POST.toString());
+    try std.testing.expectEqualStrings("PUT", HttpClient.Method.PUT.toString());
+    try std.testing.expectEqualStrings("DELETE", HttpClient.Method.DELETE.toString());
+    try std.testing.expectEqualStrings("PATCH", HttpClient.Method.PATCH.toString());
+    try std.testing.expectEqualStrings("HEAD", HttpClient.Method.HEAD.toString());
+    try std.testing.expectEqualStrings("OPTIONS", HttpClient.Method.OPTIONS.toString());
+}
+
+test "HttpError isRetryable" {
+    const timeout_error = HttpClient.HttpError{
+        .kind = .timeout,
+        .message = "Request timed out",
+    };
+    try std.testing.expect(timeout_error.isRetryable());
+
+    const connection_error = HttpClient.HttpError{
+        .kind = .connection_failed,
+        .message = "Connection failed",
+    };
+    try std.testing.expect(connection_error.isRetryable());
+
+    const server_error = HttpClient.HttpError{
+        .kind = .server_error,
+        .message = "Server error",
+    };
+    try std.testing.expect(server_error.isRetryable());
+
+    const ssl_error = HttpClient.HttpError{
+        .kind = .ssl_error,
+        .message = "SSL error",
+    };
+    try std.testing.expect(!ssl_error.isRetryable());
+
+    const invalid_response_error = HttpClient.HttpError{
+        .kind = .invalid_response,
+        .message = "Invalid response",
+    };
+    try std.testing.expect(!invalid_response_error.isRetryable());
+
+    // Test status code based retryability
+    const rate_limit_error = HttpClient.HttpError{
+        .kind = .unknown,
+        .message = "Rate limited",
+        .status_code = 429,
+    };
+    try std.testing.expect(rate_limit_error.isRetryable());
+
+    const request_timeout_error = HttpClient.HttpError{
+        .kind = .unknown,
+        .message = "Request timeout",
+        .status_code = 408,
+    };
+    try std.testing.expect(request_timeout_error.isRetryable());
+
+    const internal_server_error = HttpClient.HttpError{
+        .kind = .unknown,
+        .message = "Internal server error",
+        .status_code = 500,
+    };
+    try std.testing.expect(internal_server_error.isRetryable());
+
+    const not_found_error = HttpClient.HttpError{
+        .kind = .unknown,
+        .message = "Not found",
+        .status_code = 404,
+    };
+    try std.testing.expect(!not_found_error.isRetryable());
+}
+
+test "RequestBuilder chain" {
+    const allocator = std.testing.allocator;
+
+    var builder = RequestBuilder.init(allocator);
+    defer builder.deinit();
+
+    _ = try builder
+        .method(.GET)
+        .url("https://example.com")
+        .header("Accept", "application/json");
+
+    _ = builder.timeout(5000);
+
+    const req = builder.build();
+
+    try std.testing.expectEqual(HttpClient.Method.GET, req.method);
+    try std.testing.expectEqualStrings("https://example.com", req.url);
+    try std.testing.expectEqual(@as(usize, 1), req.headers.len);
+    try std.testing.expectEqual(@as(?u64, 5000), req.timeout_ms);
+}
+
+test "RequestBuilder multiple headers" {
+    const allocator = std.testing.allocator;
+
+    var builder = RequestBuilder.init(allocator);
+    defer builder.deinit();
+
+    _ = try builder
+        .method(.POST)
+        .url("https://api.example.com/v1/chat")
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer token")
+        .header("X-Custom-Header", "value");
+
+    const req = builder.build();
+
+    try std.testing.expectEqual(@as(usize, 3), req.headers.len);
+}
+
+test "Response getHeader case insensitive" {
+    const response = HttpClient.Response{
+        .status_code = 200,
+        .headers = &.{
+            .{ .name = "Content-Type", .value = "application/json" },
+        },
+        .body = "",
+    };
+
+    try std.testing.expectEqualStrings("application/json", response.getHeader("content-type").?);
+    try std.testing.expectEqualStrings("application/json", response.getHeader("CONTENT-TYPE").?);
+    try std.testing.expectEqualStrings("application/json", response.getHeader("CoNtEnT-TyPe").?);
+}
+
+test "Request with no headers" {
+    const allocator = std.testing.allocator;
+
+    var builder = RequestBuilder.init(allocator);
+    defer builder.deinit();
+
+    _ = builder.method(.GET).url("https://example.com");
+
+    const req = builder.build();
+
+    try std.testing.expectEqual(@as(usize, 0), req.headers.len);
+    try std.testing.expect(req.body == null);
+    try std.testing.expect(req.timeout_ms == null);
 }

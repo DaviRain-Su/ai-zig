@@ -67,7 +67,7 @@ pub const IdGenerator = struct {
     }
 
     fn generateRandomPart(self: *Self, allocator: std.mem.Allocator) ![]u8 {
-        var result = try allocator.alloc(u8, self.config.size);
+        const result = try allocator.alloc(u8, self.config.size);
         const alphabet_len = self.config.alphabet.len;
 
         for (result) |*char| {
@@ -211,4 +211,129 @@ test "generateUuidLike format" {
     try std.testing.expectEqual(@as(u8, '-'), uuid[13]);
     try std.testing.expectEqual(@as(u8, '-'), uuid[18]);
     try std.testing.expectEqual(@as(u8, '-'), uuid[23]);
+}
+
+test "IdGenerator custom alphabet" {
+    const allocator = std.testing.allocator;
+
+    var generator = IdGenerator.init(.{
+        .alphabet = "ABC",
+        .size = 10,
+    });
+
+    const id = try generator.generate(allocator);
+    defer allocator.free(id);
+
+    try std.testing.expectEqual(@as(usize, 10), id.len);
+
+    // Verify all characters are from custom alphabet
+    for (id) |char| {
+        try std.testing.expect(char == 'A' or char == 'B' or char == 'C');
+    }
+}
+
+test "IdGenerator custom size" {
+    const allocator = std.testing.allocator;
+
+    var generator = IdGenerator.init(.{ .size = 32 });
+    const id = try generator.generate(allocator);
+    defer allocator.free(id);
+
+    try std.testing.expectEqual(@as(usize, 32), id.len);
+}
+
+test "IdGenerator custom separator" {
+    const allocator = std.testing.allocator;
+
+    var generator = IdGenerator.init(.{
+        .prefix = "user",
+        .separator = "_",
+        .size = 8,
+    });
+
+    const id = try generator.generate(allocator);
+    defer allocator.free(id);
+
+    try std.testing.expect(std.mem.startsWith(u8, id, "user_"));
+    try std.testing.expectEqual(@as(usize, 4 + 1 + 8), id.len);
+}
+
+test "generateId simple" {
+    const allocator = std.testing.allocator;
+
+    const id = try generateId(allocator);
+    defer allocator.free(id);
+
+    try std.testing.expectEqual(@as(usize, 16), id.len);
+}
+
+test "generatePrefixedId simple" {
+    const allocator = std.testing.allocator;
+
+    const id = try generatePrefixedId(allocator, "test");
+    defer allocator.free(id);
+
+    try std.testing.expect(std.mem.startsWith(u8, id, "test-"));
+}
+
+test "hasPrefix with different separators" {
+    try std.testing.expect(hasPrefix("user_123abc", "user", "_"));
+    try std.testing.expect(!hasPrefix("user_123abc", "user", "-"));
+    try std.testing.expect(!hasPrefix("user123abc", "user", "_"));
+}
+
+test "hasPrefix edge cases" {
+    try std.testing.expect(!hasPrefix("", "prefix", "-"));
+    try std.testing.expect(!hasPrefix("p", "prefix", "-"));
+    try std.testing.expect(!hasPrefix("prefix", "prefix", "-"));
+    try std.testing.expect(hasPrefix("prefix-", "prefix", "-"));
+}
+
+test "generateUuidLike uniqueness" {
+    const allocator = std.testing.allocator;
+
+    const uuid1 = try generateUuidLike(allocator);
+    defer allocator.free(uuid1);
+
+    const uuid2 = try generateUuidLike(allocator);
+    defer allocator.free(uuid2);
+
+    // Should be different
+    try std.testing.expect(!std.mem.eql(u8, uuid1, uuid2));
+}
+
+test "generateUuidLike contains only hex" {
+    const allocator = std.testing.allocator;
+
+    const uuid = try generateUuidLike(allocator);
+    defer allocator.free(uuid);
+
+    for (uuid) |char| {
+        if (char != '-') {
+            try std.testing.expect((char >= '0' and char <= '9') or (char >= 'a' and char <= 'f'));
+        }
+    }
+}
+
+test "createCustomIdGenerator" {
+    const allocator = std.testing.allocator;
+
+    var generator = createCustomIdGenerator(.{
+        .prefix = "custom",
+        .separator = ":",
+        .size = 12,
+        .alphabet = "0123456789",
+    });
+
+    const id = try generator.generate(allocator);
+    defer allocator.free(id);
+
+    try std.testing.expect(std.mem.startsWith(u8, id, "custom:"));
+    try std.testing.expectEqual(@as(usize, 6 + 1 + 12), id.len);
+
+    // Check that only digits are used
+    const random_part = id[7..];
+    for (random_part) |char| {
+        try std.testing.expect(char >= '0' and char <= '9');
+    }
 }

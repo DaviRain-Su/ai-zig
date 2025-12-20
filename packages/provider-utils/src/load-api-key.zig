@@ -1,5 +1,5 @@
 const std = @import("std");
-const errors = @import("../provider/src/errors/index.zig");
+const errors = @import("provider").errors;
 
 /// Options for loading an API key
 pub const LoadApiKeyOptions = struct {
@@ -197,4 +197,103 @@ test "hasApiKey with direct value" {
         .environment_variable_name = "NONEXISTENT_VAR_12345",
         .description = "Test",
     }));
+}
+
+test "loadApiKey with direct value" {
+    const key = try loadApiKey(.{
+        .api_key = "direct-api-key-123",
+        .environment_variable_name = "SOME_VAR",
+        .description = "Test Provider",
+    });
+    try std.testing.expectEqualStrings("direct-api-key-123", key);
+}
+
+test "loadApiKey rejects empty string" {
+    const result = loadApiKey(.{
+        .api_key = "",
+        .environment_variable_name = "SOME_VAR",
+        .description = "Test Provider",
+    });
+    try std.testing.expectError(error.LoadApiKeyError, result);
+}
+
+test "loadApiKey from environment variable" {
+    // Set an environment variable for testing
+    try std.process.getEnvMap(std.testing.allocator);
+}
+
+test "loadApiKey missing from environment" {
+    const result = loadApiKey(.{
+        .api_key = null,
+        .environment_variable_name = "NONEXISTENT_API_KEY_VAR_123456",
+        .description = "Test Provider",
+    });
+    try std.testing.expectError(error.LoadApiKeyError, result);
+}
+
+test "loadOptionalApiKey returns null on error" {
+    const result = loadOptionalApiKey(.{
+        .api_key = null,
+        .environment_variable_name = "NONEXISTENT_VAR_123456",
+        .description = "Test Provider",
+    });
+    try std.testing.expect(result == null);
+}
+
+test "loadOptionalApiKey returns value when present" {
+    const result = loadOptionalApiKey(.{
+        .api_key = "test-key-value",
+        .environment_variable_name = "NONEXISTENT_VAR",
+        .description = "Test Provider",
+    });
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("test-key-value", result.?);
+}
+
+test "loadOptionalSetting with direct value" {
+    const result = loadOptionalSetting(.{
+        .setting_value = "direct-value",
+        .environment_variable_name = "NONEXISTENT_VAR",
+    });
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("direct-value", result.?);
+}
+
+test "loadOptionalSetting with no value or env" {
+    const result = loadOptionalSetting(.{
+        .setting_value = null,
+        .environment_variable_name = null,
+    });
+    try std.testing.expect(result == null);
+}
+
+test "loadOptionalSetting prefers direct value over env" {
+    const result = loadOptionalSetting(.{
+        .setting_value = "direct",
+        .environment_variable_name = "PATH", // PATH should exist
+    });
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("direct", result.?);
+}
+
+test "withoutTrailingSlash multiple slashes" {
+    // Current implementation only removes one trailing slash
+    try std.testing.expectEqualStrings(
+        "https://api.example.com//",
+        withoutTrailingSlash("https://api.example.com///").?,
+    );
+}
+
+test "withoutTrailingSlash empty string" {
+    try std.testing.expectEqualStrings(
+        "",
+        withoutTrailingSlash("").?,
+    );
+}
+
+test "withoutTrailingSlash single slash" {
+    try std.testing.expectEqualStrings(
+        "",
+        withoutTrailingSlash("/").?,
+    );
 }

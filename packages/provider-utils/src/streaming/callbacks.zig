@@ -280,3 +280,192 @@ test "StreamAccumulator" {
     try std.testing.expectEqualStrings("search", acc.getToolCalls()[0].name);
     try std.testing.expectEqualStrings("{\"query\":\"test\"}", acc.getToolCalls()[0].input.items);
 }
+
+test "CallbackBuilder basic" {
+    var item_count: usize = 0;
+    var error_received = false;
+    var complete_called = false;
+
+    var builder = CallbackBuilder(i32).init();
+
+    _ = builder.onItem(struct {
+        fn handler(ctx: ?*anyopaque, _: i32) void {
+            const count: *usize = @ptrCast(@alignCast(ctx));
+            count.* += 1;
+        }
+    }.handler);
+
+    _ = builder.onError(struct {
+        fn handler(ctx: ?*anyopaque, _: anyerror) void {
+            const flag: *bool = @ptrCast(@alignCast(ctx));
+            flag.* = true;
+        }
+    }.handler);
+
+    _ = builder.onComplete(struct {
+        fn handler(ctx: ?*anyopaque) void {
+            const flag: *bool = @ptrCast(@alignCast(ctx));
+            flag.* = true;
+        }
+    }.handler);
+
+    _ = builder.withContext(&item_count);
+
+    const callbacks = builder.build();
+
+    callbacks.emit(1);
+    callbacks.emit(2);
+    callbacks.emit(3);
+
+    try std.testing.expectEqual(@as(usize, 3), item_count);
+
+    // Change context for error
+    var error_callbacks = callbacks;
+    error_callbacks.ctx = &error_received;
+    error_callbacks.fail(error.TestError);
+
+    try std.testing.expect(error_received);
+
+    // Change context for complete
+    var complete_callbacks = callbacks;
+    complete_callbacks.ctx = &complete_called;
+    complete_callbacks.complete();
+
+    try std.testing.expect(complete_called);
+}
+
+test "StreamCallbacks emit fail complete" {
+    var items = std.ArrayList(i32).init(std.testing.allocator);
+    defer items.deinit();
+
+    var error_seen: ?anyerror = null;
+    var complete_seen = false;
+
+    const TestContext = struct {
+        items: *std.ArrayList(i32),
+        error_seen: *?anyerror,
+        complete_seen: *bool,
+    };
+
+    var ctx = TestContext{
+        .items = &items,
+        .error_seen = &error_seen,
+        .complete_seen = &complete_seen,
+    };
+
+    const callbacks = StreamCallbacks(i32){
+        .on_item = struct {
+            fn handler(context: ?*anyopaque, item: i32) void {
+                const c: *TestContext = @ptrCast(@alignCast(context));
+                c.items.append(item) catch {};
+            }
+        }.handler,
+        .on_error = struct {
+            fn handler(context: ?*anyopaque, err: anyerror) void {
+                const c: *TestContext = @ptrCast(@alignCast(context));
+                c.error_seen.* = err;
+            }
+        }.handler,
+        .on_complete = struct {
+            fn handler(context: ?*anyopaque) void {
+                const c: *TestContext = @ptrCast(@alignCast(context));
+                c.complete_seen.* = true;
+            }
+        }.handler,
+        .ctx = &ctx,
+    };
+
+    callbacks.emit(10);
+    callbacks.emit(20);
+    callbacks.emit(30);
+
+    try std.testing.expectEqual(@as(usize, 3), items.items.len);
+    try std.testing.expectEqual(@as(i32, 10), items.items[0]);
+    try std.testing.expectEqual(@as(i32, 20), items.items[1]);
+    try std.testing.expectEqual(@as(i32, 30), items.items[2]);
+
+    callbacks.fail(error.TestFailure);
+    try std.testing.expect(error_seen != null);
+    try std.testing.expectEqual(error.TestFailure, error_seen.?);
+
+    callbacks.complete();
+    try std.testing.expect(complete_seen);
+}
+
+test "StreamAccumulator multiple tool calls" {
+    const allocator = std.testing.allocator;
+
+    var acc = StreamAccumulator.init(allocator);
+    defer acc.deinit();
+
+    try acc.startToolCall("call-1", "search");
+    try acc.startToolCall("call-2", "calculate");
+    try acc.startToolCall("call-3", "translate");
+
+    try acc.appendToolInput("call-1", "query1");
+    try acc.appendToolInput("call-2", "expr1");
+    try acc.appendToolInput("call-3", "text1");
+
+    try acc.appendToolInput("call-1", " query2");
+    try acc.appendToolInput("call-2", " expr2");
+
+    try std.testing.expectEqual(@as(usize, 3), acc.getToolCalls().len);
+    try std.testing.expectEqualStrings("search", acc.getToolCalls()[0].name);
+    try std.testing.expectEqualStrings("calculate", acc.getToolCalls()[1].name);
+    try std.testing.expectEqualStrings("translate", acc.getToolCalls()[2].name);
+
+    try std.testing.expectEqualStrings("query1 query2", acc.getToolCalls()[0].input.items);
+    try std.testing.expectEqualStrings("expr1 expr2", acc.getToolCalls()[1].input.items);
+    try std.testing.expectEqualStrings("text1", acc.getToolCalls()[2].input.items);
+}
+
+test "StreamAccumulator empty" {
+    const allocator = std.testing.allocator;
+
+    var acc = StreamAccumulator.init(allocator);
+    defer acc.deinit();
+
+    try std.testing.expectEqualStrings("", acc.getText());
+    try std.testing.expectEqual(@as(usize, 0), acc.getToolCalls().len);
+}
+
+test "StreamAccumulator append to nonexistent tool call" {
+    const allocator = std.testing.allocator;
+
+    var acc = StreamAccumulator.init(allocator);
+    defer acc.deinit();
+
+    try acc.startToolCall("call-1", "search");
+
+    // Try to append to non-existent tool call (should not crash)
+    try acc.appendToolInput("call-2", "data");
+
+    try std.testing.expectEqual(@as(usize, 1), acc.getToolCalls().len);
+    try std.testing.expectEqualStrings("", acc.getToolCalls()[0].input.items);
+}
+
+test "LanguageModelStreamCallbacks init" {
+    var complete_called = false;
+
+    const callbacks = LanguageModelStreamCallbacks.init(
+        struct {
+            fn onError(_: ?*anyopaque, _: anyerror) void {}
+        }.onError,
+        struct {
+            fn onComplete(ctx: ?*anyopaque) void {
+                const flag: *bool = @ptrCast(@alignCast(ctx));
+                flag.* = true;
+            }
+        }.onComplete,
+    );
+
+    try std.testing.expect(callbacks.on_text_delta == null);
+    try std.testing.expect(callbacks.on_tool_call_start == null);
+    try std.testing.expect(callbacks.on_usage == null);
+
+    var callbacks_with_ctx = callbacks;
+    callbacks_with_ctx.ctx = &complete_called;
+    callbacks_with_ctx.on_complete(callbacks_with_ctx.ctx);
+
+    try std.testing.expect(complete_called);
+}

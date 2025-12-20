@@ -180,3 +180,140 @@ test "isEventStreamResponse" {
     try std.testing.expect(isEventStreamResponse(&headers));
     try std.testing.expect(!isJsonResponse(&headers));
 }
+
+test "extractResponseHeadersSlice" {
+    const allocator = std.testing.allocator;
+
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+        .{ .name = "X-Custom", .value = "test" },
+    };
+
+    const extracted = try extractResponseHeadersSlice(allocator, &headers);
+    defer {
+        for (extracted) |header| {
+            allocator.free(header.name);
+            allocator.free(header.value);
+        }
+        allocator.free(extracted);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), extracted.len);
+}
+
+test "getContentLength" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Length", .value = "12345" },
+    };
+
+    const length = getContentLength(&headers);
+    try std.testing.expect(length != null);
+    try std.testing.expectEqual(@as(u64, 12345), length.?);
+}
+
+test "getContentLength invalid" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Length", .value = "invalid" },
+    };
+
+    const length = getContentLength(&headers);
+    try std.testing.expect(length == null);
+}
+
+test "getContentLength missing" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+    };
+
+    const length = getContentLength(&headers);
+    try std.testing.expect(length == null);
+}
+
+test "hasContentType with charset" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json; charset=utf-8" },
+    };
+
+    try std.testing.expect(hasContentType(&headers, "application/json"));
+    try std.testing.expect(!hasContentType(&headers, "text/plain"));
+}
+
+test "extractResponseMetadata complete" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+        .{ .name = "Content-Length", .value = "100" },
+        .{ .name = "X-Request-Id", .value = "req-123" },
+        .{ .name = "X-RateLimit-Remaining", .value = "50" },
+        .{ .name = "X-RateLimit-Reset", .value = "1234567890" },
+    };
+
+    const metadata = extractResponseMetadata(&headers);
+
+    try std.testing.expect(metadata.content_type != null);
+    try std.testing.expectEqualStrings("application/json", metadata.content_type.?);
+    try std.testing.expect(metadata.content_length != null);
+    try std.testing.expectEqual(@as(u64, 100), metadata.content_length.?);
+    try std.testing.expect(metadata.request_id != null);
+    try std.testing.expectEqualStrings("req-123", metadata.request_id.?);
+    try std.testing.expect(metadata.rate_limit_remaining != null);
+    try std.testing.expectEqual(@as(u32, 50), metadata.rate_limit_remaining.?);
+    try std.testing.expect(metadata.rate_limit_reset != null);
+    try std.testing.expectEqual(@as(i64, 1234567890), metadata.rate_limit_reset.?);
+}
+
+test "extractResponseMetadata minimal" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Server", .value = "nginx" },
+    };
+
+    const metadata = extractResponseMetadata(&headers);
+
+    try std.testing.expect(metadata.content_type == null);
+    try std.testing.expect(metadata.content_length == null);
+    try std.testing.expect(metadata.request_id == null);
+    try std.testing.expect(metadata.rate_limit_remaining == null);
+    try std.testing.expect(metadata.rate_limit_reset == null);
+}
+
+test "getHeaderValue not found" {
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+    };
+
+    try std.testing.expect(getHeaderValue(&headers, "X-Missing") == null);
+}
+
+test "isJsonResponse with different cases" {
+    const headers1 = [_]http_client.HttpClient.Header{
+        .{ .name = "content-type", .value = "application/json" },
+    };
+
+    const headers2 = [_]http_client.HttpClient.Header{
+        .{ .name = "CONTENT-TYPE", .value = "application/json" },
+    };
+
+    try std.testing.expect(isJsonResponse(&headers1));
+    try std.testing.expect(isJsonResponse(&headers2));
+}
+
+test "extractResponseHeaders duplicate keys" {
+    const allocator = std.testing.allocator;
+
+    const headers = [_]http_client.HttpClient.Header{
+        .{ .name = "Set-Cookie", .value = "cookie1=value1" },
+        .{ .name = "Set-Cookie", .value = "cookie2=value2" },
+    };
+
+    var extracted = try extractResponseHeaders(allocator, &headers);
+    defer {
+        var iter = extracted.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        extracted.deinit();
+    }
+
+    // HashMap will only keep the last value for duplicate keys
+    try std.testing.expectEqual(@as(usize, 1), extracted.count());
+}

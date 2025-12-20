@@ -1,6 +1,6 @@
 const std = @import("std");
-const json_value = @import("../provider/src/json-value/index.zig");
-const errors = @import("../provider/src/errors/index.zig");
+const json_value = @import("provider").json_value;
+const errors = @import("provider").errors;
 
 /// Result of parsing JSON
 pub const ParseResult = union(enum) {
@@ -219,4 +219,190 @@ test "isParsableJson" {
     try std.testing.expect(isParsableJson("null"));
     try std.testing.expect(!isParsableJson("{invalid}"));
     try std.testing.expect(!isParsableJson(""));
+}
+
+test "parseJson success" {
+    const allocator = std.testing.allocator;
+
+    const value = try parseJson("{\"status\": \"ok\"}", allocator);
+    defer {
+        var v = value;
+        v.deinit(allocator);
+    }
+
+    try std.testing.expectEqualStrings("ok", value.get("status").?.asString().?);
+}
+
+test "parseJson failure" {
+    const allocator = std.testing.allocator;
+    const result = parseJson("{invalid json}", allocator);
+    try std.testing.expectError(error.JsonParseError, result);
+}
+
+test "safeParseJson with whitespace" {
+    const allocator = std.testing.allocator;
+
+    const result = safeParseJson("   \n\t  ", allocator);
+    switch (result) {
+        .success => unreachable,
+        .failure => |err| {
+            try std.testing.expectEqualStrings("Empty JSON string", err.message);
+        },
+    }
+}
+
+test "safeParseJson complex object" {
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\{
+        \\  "user": {
+        \\    "name": "Alice",
+        \\    "age": 30,
+        \\    "active": true
+        \\  },
+        \\  "items": [1, 2, 3],
+        \\  "count": 42
+        \\}
+    ;
+
+    const result = safeParseJson(json, allocator);
+    switch (result) {
+        .success => |value| {
+            defer {
+                var v = value;
+                v.deinit(allocator);
+            }
+            try std.testing.expectEqual(@as(i64, 42), value.get("count").?.asInteger().?);
+        },
+        .failure => unreachable,
+    }
+}
+
+test "safeParseJson array" {
+    const allocator = std.testing.allocator;
+
+    const result = safeParseJson("[1, 2, 3, 4, 5]", allocator);
+    switch (result) {
+        .success => |value| {
+            defer {
+                var v = value;
+                v.deinit(allocator);
+            }
+            const arr = value.asArray().?;
+            try std.testing.expectEqual(@as(usize, 5), arr.items.len);
+        },
+        .failure => unreachable,
+    }
+}
+
+test "safeParseJson primitives" {
+    const allocator = std.testing.allocator;
+
+    // Test null
+    const null_result = safeParseJson("null", allocator);
+    switch (null_result) {
+        .success => |value| {
+            defer {
+                var v = value;
+                v.deinit(allocator);
+            }
+            try std.testing.expect(value.isNull());
+        },
+        .failure => unreachable,
+    }
+
+    // Test boolean
+    const bool_result = safeParseJson("true", allocator);
+    switch (bool_result) {
+        .success => |value| {
+            defer {
+                var v = value;
+                v.deinit(allocator);
+            }
+            try std.testing.expectEqual(true, value.asBool().?);
+        },
+        .failure => unreachable,
+    }
+
+    // Test number
+    const num_result = safeParseJson("123.45", allocator);
+    switch (num_result) {
+        .success => |value| {
+            defer {
+                var v = value;
+                v.deinit(allocator);
+            }
+            try std.testing.expect(value.asFloat() != null or value.asInteger() != null);
+        },
+        .failure => unreachable,
+    }
+}
+
+test "parseJsonTyped helpers" {
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\{
+        \\  "name": "test",
+        \\  "count": 42,
+        \\  "active": true,
+        \\  "tags": ["a", "b", "c"]
+        \\}
+    ;
+
+    const result = try parseJsonTyped(json, allocator);
+    defer {
+        var v = result.value;
+        v.deinit(allocator);
+    }
+
+    try std.testing.expectEqualStrings("test", result.getString("name").?);
+    try std.testing.expectEqual(@as(i64, 42), result.getInt("count").?);
+    try std.testing.expectEqual(true, result.getBool("active").?);
+    try std.testing.expect(result.getArray("tags") != null);
+    try std.testing.expect(result.getString("nonexistent") == null);
+}
+
+test "extractJsonField string" {
+    const allocator = std.testing.allocator;
+
+    const json = "{\"message\": \"hello world\"}";
+    const result = extractJsonField(json, "message", allocator);
+
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("hello world", result.?);
+}
+
+test "extractJsonField missing" {
+    const allocator = std.testing.allocator;
+
+    const json = "{\"other\": \"value\"}";
+    const result = extractJsonField(json, "missing", allocator);
+
+    try std.testing.expect(result == null);
+}
+
+test "extractJsonField invalid json" {
+    const allocator = std.testing.allocator;
+
+    const result = extractJsonField("{invalid}", "field", allocator);
+    try std.testing.expect(result == null);
+}
+
+test "isParsableJson edge cases" {
+    // Valid JSON types
+    try std.testing.expect(isParsableJson("true"));
+    try std.testing.expect(isParsableJson("false"));
+    try std.testing.expect(isParsableJson("123"));
+    try std.testing.expect(isParsableJson("-456.789"));
+    try std.testing.expect(isParsableJson("\"string\""));
+    try std.testing.expect(isParsableJson("[]"));
+
+    // Invalid JSON
+    try std.testing.expect(!isParsableJson("undefined"));
+    try std.testing.expect(!isParsableJson("{"));
+    try std.testing.expect(!isParsableJson("}"));
+    try std.testing.expect(!isParsableJson("[,]"));
+    try std.testing.expect(!isParsableJson("{,}"));
 }

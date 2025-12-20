@@ -168,3 +168,189 @@ test "combineHeaders with null" {
 
     try std.testing.expectEqual(@as(usize, 1), combined.len);
 }
+
+test "combineHeaders empty arrays" {
+    const allocator = std.testing.allocator;
+
+    const combined = try combineHeaders(allocator, &.{});
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 0), combined.len);
+}
+
+test "combineHeaders all null" {
+    const allocator = std.testing.allocator;
+
+    const combined = try combineHeaders(allocator, &.{ null, null, null });
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 0), combined.len);
+}
+
+test "combineHeaders multiple overrides" {
+    const allocator = std.testing.allocator;
+
+    const headers1 = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "text/plain" },
+        .{ .name = "Accept", .value = "text/plain" },
+    };
+
+    const headers2 = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+    };
+
+    const headers3 = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/xml" },
+    };
+
+    const combined = try combineHeaders(allocator, &.{ &headers1, &headers2, &headers3 });
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 2), combined.len);
+
+    // Find Content-Type header
+    var found = false;
+    for (combined) |header| {
+        if (std.mem.eql(u8, header.name, "Content-Type")) {
+            try std.testing.expectEqualStrings("application/xml", header.value);
+            found = true;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "combineHeadersWithContentType" {
+    const allocator = std.testing.allocator;
+
+    const custom = [_]http_client.HttpClient.Header{
+        .{ .name = "Authorization", .value = "Bearer token" },
+    };
+
+    const combined = try combineHeadersWithContentType(
+        allocator,
+        "application/json",
+        &custom,
+    );
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 2), combined.len);
+
+    var has_content_type = false;
+    var has_auth = false;
+    for (combined) |header| {
+        if (std.mem.eql(u8, header.name, "Content-Type")) {
+            try std.testing.expectEqualStrings("application/json", header.value);
+            has_content_type = true;
+        }
+        if (std.mem.eql(u8, header.name, "Authorization")) {
+            has_auth = true;
+        }
+    }
+    try std.testing.expect(has_content_type);
+    try std.testing.expect(has_auth);
+}
+
+test "combineHeadersWithContentType override" {
+    const allocator = std.testing.allocator;
+
+    const custom = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "text/plain" },
+    };
+
+    const combined = try combineHeadersWithContentType(
+        allocator,
+        "application/json",
+        &custom,
+    );
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 1), combined.len);
+    try std.testing.expectEqualStrings("text/plain", combined[0].value);
+}
+
+test "addBearerToken" {
+    const allocator = std.testing.allocator;
+
+    const existing = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+    };
+
+    const combined = try addBearerToken(allocator, &existing, "test-token-123");
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 2), combined.len);
+
+    var has_auth = false;
+    for (combined) |header| {
+        if (std.mem.eql(u8, header.name, "Authorization")) {
+            try std.testing.expectEqualStrings("Bearer test-token-123", header.value);
+            has_auth = true;
+        }
+    }
+    try std.testing.expect(has_auth);
+}
+
+test "addAuthorizationHeader custom type" {
+    const allocator = std.testing.allocator;
+
+    const combined = try addAuthorizationHeader(
+        allocator,
+        null,
+        "Basic",
+        "credentials",
+    );
+    defer allocator.free(combined);
+
+    try std.testing.expectEqual(@as(usize, 1), combined.len);
+    try std.testing.expectEqualStrings("Authorization", combined[0].name);
+    try std.testing.expectEqualStrings("Basic credentials", combined[0].value);
+}
+
+test "HeaderIterator basic" {
+    const allocator = std.testing.allocator;
+
+    const headers1 = [_]http_client.HttpClient.Header{
+        .{ .name = "A", .value = "1" },
+        .{ .name = "B", .value = "2" },
+    };
+
+    const headers2 = [_]http_client.HttpClient.Header{
+        .{ .name = "C", .value = "3" },
+    };
+
+    var iter = HeaderIterator.init(allocator, &.{ &headers1, &headers2 });
+    defer iter.deinit();
+
+    var count: usize = 0;
+    while (iter.next()) |_| {
+        count += 1;
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), count);
+}
+
+test "HeaderIterator deduplication" {
+    const allocator = std.testing.allocator;
+
+    const headers1 = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "application/json" },
+    };
+
+    const headers2 = [_]http_client.HttpClient.Header{
+        .{ .name = "Content-Type", .value = "text/plain" },
+    };
+
+    var iter = HeaderIterator.init(allocator, &.{ &headers1, &headers2 });
+    defer iter.deinit();
+
+    var count: usize = 0;
+    while (iter.next()) |header| {
+        if (std.mem.eql(u8, header.name, "Content-Type")) {
+            // Should get the first one
+            try std.testing.expectEqualStrings("application/json", header.value);
+            count += 1;
+        }
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), count);
+}
