@@ -74,6 +74,7 @@ pub fn build(b: *std.Build) void {
     });
     azure_mod.addImport("provider", provider_mod);
     azure_mod.addImport("provider-utils", provider_utils_mod);
+    azure_mod.addImport("openai", openai_mod);
 
     // Amazon Bedrock provider
     const bedrock_mod = b.addModule("amazon-bedrock", .{
@@ -102,6 +103,15 @@ pub fn build(b: *std.Build) void {
     cohere_mod.addImport("provider", provider_mod);
     cohere_mod.addImport("provider-utils", provider_utils_mod);
 
+    // OpenAI Compatible provider (needed by xAI, Perplexity, Groq, etc.)
+    const openai_compatible_mod = b.addModule("openai-compatible", .{
+        .root_source_file = b.path("packages/openai-compatible/src/index.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    openai_compatible_mod.addImport("provider", provider_mod);
+    openai_compatible_mod.addImport("provider-utils", provider_utils_mod);
+
     // Groq provider
     const groq_mod = b.addModule("groq", .{
         .root_source_file = b.path("packages/groq/src/index.zig"),
@@ -110,6 +120,7 @@ pub fn build(b: *std.Build) void {
     });
     groq_mod.addImport("provider", provider_mod);
     groq_mod.addImport("provider-utils", provider_utils_mod);
+    groq_mod.addImport("openai-compatible", openai_compatible_mod);
 
     // DeepSeek provider
     const deepseek_mod = b.addModule("deepseek", .{
@@ -119,15 +130,6 @@ pub fn build(b: *std.Build) void {
     });
     deepseek_mod.addImport("provider", provider_mod);
     deepseek_mod.addImport("provider-utils", provider_utils_mod);
-
-    // OpenAI Compatible provider (needed by xAI, Perplexity, etc.)
-    const openai_compatible_mod = b.addModule("openai-compatible", .{
-        .root_source_file = b.path("packages/openai-compatible/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    openai_compatible_mod.addImport("provider", provider_mod);
-    openai_compatible_mod.addImport("provider-utils", provider_utils_mod);
 
     // xAI provider
     const xai_mod = b.addModule("xai", .{
@@ -157,6 +159,7 @@ pub fn build(b: *std.Build) void {
     });
     togetherai_mod.addImport("provider", provider_mod);
     togetherai_mod.addImport("provider-utils", provider_utils_mod);
+    togetherai_mod.addImport("openai-compatible", openai_compatible_mod);
 
     // Fireworks provider
     const fireworks_mod = b.addModule("fireworks", .{
@@ -300,145 +303,58 @@ pub fn build(b: *std.Build) void {
     // Test step
     const test_step = b.step("test", "Run unit tests");
 
-    // Provider tests
-    const provider_tests = b.addTest(.{
-        .root_source_file = b.path("packages/provider/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    test_step.dependOn(&b.addRunArtifact(provider_tests).step);
+    // Helper function to create test with modules
+    const TestConfig = struct {
+        path: []const u8,
+        imports: []const struct { name: []const u8, mod: *std.Build.Module },
+    };
 
-    // AI package tests
-    const ai_tests = b.addTest(.{
-        .root_source_file = b.path("packages/ai/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ai_tests.root_module.addImport("provider", provider_mod);
-    test_step.dependOn(&b.addRunArtifact(ai_tests).step);
+    const test_configs = [_]TestConfig{
+        .{ .path = "packages/provider/src/index.zig", .imports = &.{} },
+        .{ .path = "packages/provider-utils/src/index.zig", .imports = &.{.{ .name = "provider", .mod = provider_mod }} },
+        .{ .path = "packages/ai/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/openai/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/anthropic/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/google/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/mistral/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/cohere/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/openai-compatible/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/xai/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/perplexity/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/togetherai/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/fireworks/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/cerebras/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/deepinfra/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/huggingface/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/groq/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai-compatible", .mod = openai_compatible_mod } } },
+        .{ .path = "packages/elevenlabs/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/deepgram/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/replicate/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod } } },
+        .{ .path = "packages/azure/src/index.zig", .imports = &.{ .{ .name = "provider", .mod = provider_mod }, .{ .name = "provider-utils", .mod = provider_utils_mod }, .{ .name = "openai", .mod = openai_mod } } },
+    };
 
-    // OpenAI tests
-    const openai_tests = b.addTest(.{
-        .root_source_file = b.path("packages/openai/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    openai_tests.root_module.addImport("provider", provider_mod);
-    openai_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    test_step.dependOn(&b.addRunArtifact(openai_tests).step);
-
-    // Anthropic tests
-    const anthropic_tests = b.addTest(.{
-        .root_source_file = b.path("packages/anthropic/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    anthropic_tests.root_module.addImport("provider", provider_mod);
-    anthropic_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    test_step.dependOn(&b.addRunArtifact(anthropic_tests).step);
-
-    // xAI tests
-    const xai_tests = b.addTest(.{
-        .root_source_file = b.path("packages/xai/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    xai_tests.root_module.addImport("provider", provider_mod);
-    xai_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    xai_tests.root_module.addImport("openai-compatible", openai_compatible_mod);
-    test_step.dependOn(&b.addRunArtifact(xai_tests).step);
-
-    // Perplexity tests
-    const perplexity_tests = b.addTest(.{
-        .root_source_file = b.path("packages/perplexity/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    perplexity_tests.root_module.addImport("provider", provider_mod);
-    perplexity_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    perplexity_tests.root_module.addImport("openai-compatible", openai_compatible_mod);
-    test_step.dependOn(&b.addRunArtifact(perplexity_tests).step);
-
-    // Fireworks tests
-    const fireworks_tests = b.addTest(.{
-        .root_source_file = b.path("packages/fireworks/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    fireworks_tests.root_module.addImport("provider", provider_mod);
-    fireworks_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    fireworks_tests.root_module.addImport("openai-compatible", openai_compatible_mod);
-    test_step.dependOn(&b.addRunArtifact(fireworks_tests).step);
-
-    // HuggingFace tests
-    const huggingface_tests = b.addTest(.{
-        .root_source_file = b.path("packages/huggingface/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    huggingface_tests.root_module.addImport("provider", provider_mod);
-    huggingface_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    huggingface_tests.root_module.addImport("openai-compatible", openai_compatible_mod);
-    test_step.dependOn(&b.addRunArtifact(huggingface_tests).step);
-
-    // ElevenLabs tests
-    const elevenlabs_tests = b.addTest(.{
-        .root_source_file = b.path("packages/elevenlabs/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    elevenlabs_tests.root_module.addImport("provider", provider_mod);
-    elevenlabs_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    test_step.dependOn(&b.addRunArtifact(elevenlabs_tests).step);
-
-    // Deepgram tests
-    const deepgram_tests = b.addTest(.{
-        .root_source_file = b.path("packages/deepgram/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    deepgram_tests.root_module.addImport("provider", provider_mod);
-    deepgram_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    test_step.dependOn(&b.addRunArtifact(deepgram_tests).step);
-
-
-    // Cerebras tests
-    const cerebras_tests = b.addTest(.{
-        .root_source_file = b.path("packages/cerebras/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    cerebras_tests.root_module.addImport("provider", provider_mod);
-    cerebras_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    cerebras_tests.root_module.addImport("openai-compatible", openai_compatible_mod);
-    test_step.dependOn(&b.addRunArtifact(cerebras_tests).step);
-    // DeepInfra tests
-    const deepinfra_tests = b.addTest(.{
-        .root_source_file = b.path("packages/deepinfra/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    deepinfra_tests.root_module.addImport("provider", provider_mod);
-    deepinfra_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    deepinfra_tests.root_module.addImport("openai-compatible", openai_compatible_mod);
-    test_step.dependOn(&b.addRunArtifact(deepinfra_tests).step);
-
-    // Replicate tests
-    const replicate_tests = b.addTest(.{
-        .root_source_file = b.path("packages/replicate/src/index.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    replicate_tests.root_module.addImport("provider", provider_mod);
-    replicate_tests.root_module.addImport("provider-utils", provider_utils_mod);
-    test_step.dependOn(&b.addRunArtifact(replicate_tests).step);
+    for (test_configs) |config| {
+        const tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(config.path),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        for (config.imports) |imp| {
+            tests.root_module.addImport(imp.name, imp.mod);
+        }
+        test_step.dependOn(&b.addRunArtifact(tests).step);
+    }
 
     // Example executable
     const example = b.addExecutable(.{
         .name = "ai-example",
-        .root_source_file = b.path("examples/simple.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/simple.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     example.root_module.addImport("ai", ai_mod);
     example.root_module.addImport("openai", openai_mod);
