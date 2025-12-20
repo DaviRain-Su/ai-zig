@@ -107,15 +107,9 @@ pub const OpenAIEmbeddingModel = struct {
         result_allocator: std.mem.Allocator,
         call_options: em.EmbeddingModelCallOptions,
     ) !em.EmbeddingModelV3.EmbedSuccess {
-        // Extract dimensions from provider options
-        const dimensions: ?u32 = blk: {
-            const opts = call_options.provider_options orelse break :blk null;
-            const dim_value = opts.get("dimensions") orelse break :blk null;
-            switch (dim_value) {
-                .integer => |i| break :blk @intCast(i),
-                else => break :blk null,
-            }
-        };
+        // Dimensions would come from provider-specific options
+        // For now, we don't extract dimensions from provider_options
+        const dimensions: ?u32 = null;
 
         // Build request
         const request = api.OpenAITextEmbeddingRequest{
@@ -130,7 +124,7 @@ pub const OpenAIEmbeddingModel = struct {
         const url = try self.config.buildUrl(request_allocator, "/embeddings", self.model_id);
 
         // Get headers
-        var headers = self.config.getHeaders(request_allocator);
+        var headers = self.config.getHeaders();
         if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
@@ -170,9 +164,7 @@ pub const OpenAIEmbeddingModel = struct {
         // Extract embeddings and sort by index
         var embeddings = try result_allocator.alloc(em.EmbeddingModelV3Embedding, response.data.len);
         for (response.data) |item| {
-            embeddings[item.index] = .{
-                .values = try result_allocator.dupe(f32, item.embedding),
-            };
+            embeddings[item.index] = try result_allocator.dupe(f32, item.embedding);
         }
 
         // Convert usage
@@ -255,9 +247,7 @@ pub const EmbedResult = em.EmbeddingModelV3.EmbedResult;
 
 /// Serialize request to JSON
 fn serializeRequest(allocator: std.mem.Allocator, request: api.OpenAITextEmbeddingRequest) ![]const u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
-    try std.json.stringify(request, .{}, buffer.writer());
-    return buffer.toOwnedSlice();
+    return std.json.Stringify.valueAlloc(allocator, request, .{});
 }
 
 test "OpenAIEmbeddingModel basic" {

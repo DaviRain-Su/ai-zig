@@ -53,12 +53,13 @@ pub fn prepareChatTools(
                 .provider => |prov| {
                     // Provider tools are not directly supported in chat API
                     try warnings.append(.{
-                        .type = .other,
-                        .message = try std.fmt.allocPrint(
-                            allocator,
-                            "Provider tool '{s}' is not supported in chat API",
-                            .{prov.name},
-                        ),
+                        .other = .{
+                            .message = try std.fmt.allocPrint(
+                                allocator,
+                                "Provider tool '{s}' is not supported in chat API",
+                                .{prov.name},
+                            ),
+                        },
                     });
                 },
             }

@@ -65,11 +65,11 @@ pub const OpenAIChatLanguageModel = struct {
 
         // Build the result
         const result = self.doGenerateInternal(request_allocator, result_allocator, call_options) catch |err| {
-            callback(context, .{ .failure = err });
+            callback(context, .{ .err = err });
             return;
         };
 
-        callback(context, .{ .success = result });
+        callback(context, .{ .ok = result });
     }
 
     fn doGenerateInternal(
@@ -148,7 +148,7 @@ pub const OpenAIChatLanguageModel = struct {
         const url = try self.config.buildUrl(request_allocator, "/chat/completions", self.model_id);
 
         // Get headers
-        var headers = self.config.getHeaders(request_allocator);
+        var headers = self.config.getHeaders();
         if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
@@ -210,7 +210,7 @@ pub const OpenAIChatLanguageModel = struct {
                         .tool_call = .{
                             .tool_call_id = try result_allocator.dupe(u8, tc.id orelse ""),
                             .tool_name = try result_allocator.dupe(u8, tc.function.name),
-                            .input = json_value.JsonValue.parse(result_allocator, tc.function.arguments orelse "{}") catch .{ .object = json_value.JsonObject.init(result_allocator) },
+                            .input = try result_allocator.dupe(u8, tc.function.arguments orelse "{}"),
                         },
                     });
                 }
@@ -223,8 +223,12 @@ pub const OpenAIChatLanguageModel = struct {
                         .source = .{
                             .source_type = .url,
                             .id = try provider_utils.generateId(result_allocator),
-                            .url = try result_allocator.dupe(u8, ann.url_citation.url),
-                            .title = if (ann.url_citation.title) |t| try result_allocator.dupe(u8, t) else null,
+                            .data = .{
+                                .url = .{
+                                    .url = try result_allocator.dupe(u8, ann.url_citation.url),
+                                    .title = if (ann.url_citation.title) |t| try result_allocator.dupe(u8, t) else null,
+                                },
+                            },
                         },
                     });
                 }
@@ -353,7 +357,7 @@ pub const OpenAIChatLanguageModel = struct {
         const url = try self.config.buildUrl(request_allocator, "/chat/completions", self.model_id);
 
         // Get headers
-        var headers = self.config.getHeaders(request_allocator);
+        var headers = self.config.getHeaders();
         if (call_options.headers) |user_headers| {
             var iter = user_headers.iterator();
             while (iter.next()) |entry| {
@@ -507,7 +511,7 @@ pub const GenerateResultOk = struct {
 const ToolCallState = struct {
     id: []const u8,
     name: []const u8,
-    arguments: std.ArrayList(u8),
+    arguments: std.array_list.Managed(u8),
     has_finished: bool,
 };
 
@@ -515,7 +519,7 @@ const ToolCallState = struct {
 const StreamState = struct {
     callbacks: provider_utils.StreamCallbacks(lm.LanguageModelV3StreamPart),
     result_allocator: std.mem.Allocator,
-    tool_calls: std.ArrayList(ToolCallState),
+    tool_calls: std.array_list.Managed(ToolCallState),
     is_text_active: bool,
     finish_reason: lm.LanguageModelV3FinishReason,
     usage: ?lm.LanguageModelV3Usage = null,
@@ -699,11 +703,155 @@ fn isValidJson(data: []const u8) bool {
     return true;
 }
 
-/// Serialize request to JSON
+/// Serialize request to JSON - manually to avoid HashMap serialization issues
 fn serializeRequest(allocator: std.mem.Allocator, request: api.OpenAIChatRequest) ![]const u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    try std.json.stringify(request, .{}, buffer.writer());
-    return buffer.toOwnedSlice();
+    var obj = json_value.JsonObject.init(allocator);
+
+    try obj.put("model", .{ .string = request.model });
+
+    // Serialize messages array
+    var messages_list = std.array_list.Managed(json_value.JsonValue).init(allocator);
+    for (request.messages) |msg| {
+        var msg_obj = json_value.JsonObject.init(allocator);
+        try msg_obj.put("role", .{ .string = msg.role });
+        if (msg.content) |content| {
+            switch (content) {
+                .text => |t| try msg_obj.put("content", .{ .string = t }),
+                .parts => |parts| {
+                    var parts_list = std.array_list.Managed(json_value.JsonValue).init(allocator);
+                    for (parts) |part| {
+                        var part_obj = json_value.JsonObject.init(allocator);
+                        switch (part) {
+                            .text => |tp| {
+                                try part_obj.put("type", .{ .string = "text" });
+                                try part_obj.put("text", .{ .string = tp.text });
+                            },
+                            .image_url => |ip| {
+                                try part_obj.put("type", .{ .string = "image_url" });
+                                var img_obj = json_value.JsonObject.init(allocator);
+                                try img_obj.put("url", .{ .string = ip.image_url.url });
+                                if (ip.image_url.detail) |d| try img_obj.put("detail", .{ .string = d });
+                                try part_obj.put("image_url", .{ .object = img_obj });
+                            },
+                        }
+                        try parts_list.append(.{ .object = part_obj });
+                    }
+                    try msg_obj.put("content", .{ .array = try parts_list.toOwnedSlice() });
+                },
+            }
+        }
+        if (msg.name) |n| try msg_obj.put("name", .{ .string = n });
+        if (msg.tool_call_id) |tid| try msg_obj.put("tool_call_id", .{ .string = tid });
+        if (msg.tool_calls) |tcs| {
+            var tcs_list = std.array_list.Managed(json_value.JsonValue).init(allocator);
+            for (tcs) |tc| {
+                var tc_obj = json_value.JsonObject.init(allocator);
+                if (tc.id) |id| try tc_obj.put("id", .{ .string = id });
+                try tc_obj.put("type", .{ .string = tc.type });
+                var fn_obj = json_value.JsonObject.init(allocator);
+                try fn_obj.put("name", .{ .string = tc.function.name });
+                if (tc.function.arguments) |args| try fn_obj.put("arguments", .{ .string = args });
+                try tc_obj.put("function", .{ .object = fn_obj });
+                try tcs_list.append(.{ .object = tc_obj });
+            }
+            try msg_obj.put("tool_calls", .{ .array = try tcs_list.toOwnedSlice() });
+        }
+        try messages_list.append(.{ .object = msg_obj });
+    }
+    try obj.put("messages", .{ .array = try messages_list.toOwnedSlice() });
+
+    // Add optional fields
+    if (request.max_tokens) |mt| try obj.put("max_tokens", .{ .integer = @intCast(mt) });
+    if (request.max_completion_tokens) |mct| try obj.put("max_completion_tokens", .{ .integer = @intCast(mct) });
+    if (request.temperature) |t| try obj.put("temperature", .{ .float = t });
+    if (request.top_p) |tp| try obj.put("top_p", .{ .float = tp });
+    if (request.frequency_penalty) |fp| try obj.put("frequency_penalty", .{ .float = fp });
+    if (request.presence_penalty) |pp| try obj.put("presence_penalty", .{ .float = pp });
+    if (request.seed) |s| try obj.put("seed", .{ .integer = @intCast(s) });
+
+    if (request.stop) |stops| {
+        var stop_list = std.array_list.Managed(json_value.JsonValue).init(allocator);
+        for (stops) |s| try stop_list.append(.{ .string = s });
+        try obj.put("stop", .{ .array = try stop_list.toOwnedSlice() });
+    }
+
+    if (request.tools) |tools| {
+        var tools_list = std.array_list.Managed(json_value.JsonValue).init(allocator);
+        for (tools) |tool| {
+            var tool_obj = json_value.JsonObject.init(allocator);
+            try tool_obj.put("type", .{ .string = tool.type });
+            var fn_obj = json_value.JsonObject.init(allocator);
+            try fn_obj.put("name", .{ .string = tool.function.name });
+            if (tool.function.description) |d| try fn_obj.put("description", .{ .string = d });
+            if (tool.function.parameters) |p| try fn_obj.put("parameters", p);
+            if (tool.function.strict) |st| try fn_obj.put("strict", .{ .bool = st });
+            try tool_obj.put("function", .{ .object = fn_obj });
+            try tools_list.append(.{ .object = tool_obj });
+        }
+        try obj.put("tools", .{ .array = try tools_list.toOwnedSlice() });
+    }
+
+    if (request.tool_choice) |tc| {
+        switch (tc) {
+            .auto => |a| try obj.put("tool_choice", .{ .string = a }),
+            .none => |n| try obj.put("tool_choice", .{ .string = n }),
+            .required => |r| try obj.put("tool_choice", .{ .string = r }),
+            .function => |f| {
+                var tc_obj = json_value.JsonObject.init(allocator);
+                try tc_obj.put("type", .{ .string = f.type });
+                var fn_obj = json_value.JsonObject.init(allocator);
+                try fn_obj.put("name", .{ .string = f.function.name });
+                try tc_obj.put("function", .{ .object = fn_obj });
+                try obj.put("tool_choice", .{ .object = tc_obj });
+            },
+        }
+    }
+
+    if (request.response_format) |rf| {
+        switch (rf) {
+            .text => |t| {
+                var rf_obj = json_value.JsonObject.init(allocator);
+                try rf_obj.put("type", .{ .string = t.type });
+                try obj.put("response_format", .{ .object = rf_obj });
+            },
+            .json_object => |jo| {
+                var rf_obj = json_value.JsonObject.init(allocator);
+                try rf_obj.put("type", .{ .string = jo.type });
+                try obj.put("response_format", .{ .object = rf_obj });
+            },
+            .json_schema => |js| {
+                var rf_obj = json_value.JsonObject.init(allocator);
+                try rf_obj.put("type", .{ .string = js.type });
+                var schema_obj = json_value.JsonObject.init(allocator);
+                try schema_obj.put("name", .{ .string = js.json_schema.name });
+                if (js.json_schema.description) |d| try schema_obj.put("description", .{ .string = d });
+                try schema_obj.put("schema", js.json_schema.schema);
+                try schema_obj.put("strict", .{ .bool = js.json_schema.strict });
+                try rf_obj.put("json_schema", .{ .object = schema_obj });
+                try obj.put("response_format", .{ .object = rf_obj });
+            },
+        }
+    }
+
+    if (request.stream) try obj.put("stream", .{ .bool = true });
+    if (request.stream_options) |so| {
+        var so_obj = json_value.JsonObject.init(allocator);
+        try so_obj.put("include_usage", .{ .bool = so.include_usage });
+        try obj.put("stream_options", .{ .object = so_obj });
+    }
+
+    if (request.logprobs) |lp| try obj.put("logprobs", .{ .bool = lp });
+    if (request.top_logprobs) |tlp| try obj.put("top_logprobs", .{ .integer = @intCast(tlp) });
+    if (request.user) |u| try obj.put("user", .{ .string = u });
+    if (request.store) |st| try obj.put("store", .{ .bool = st });
+    if (request.reasoning_effort) |re| try obj.put("reasoning_effort", .{ .string = re });
+    if (request.service_tier) |st| try obj.put("service_tier", .{ .string = st });
+    if (request.verbosity) |v| try obj.put("verbosity", .{ .string = v });
+
+    // Note: logit_bias and metadata (HashMap types) are not serialized here
+
+    const json_val = json_value.JsonValue{ .object = obj };
+    return json_val.stringify(allocator);
 }
 
 test "OpenAIChatLanguageModel basic" {
