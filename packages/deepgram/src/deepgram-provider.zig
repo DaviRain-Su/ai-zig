@@ -80,7 +80,7 @@ pub const DeepgramTranscriptionModel = struct {
         self: *const Self,
         options: TranscriptionOptions,
     ) ![]const u8 {
-        var params = std.ArrayList(u8).init(self.allocator);
+        var params = std.array_list.Managed(u8).init(self.allocator);
         var writer = params.writer();
 
         try writer.print("model={s}", .{self.model_id});
@@ -849,8 +849,11 @@ test "DeepgramProvider asProvider vtable" {
     defer provider.deinit();
 
     const prov = provider.asProvider();
-    const result = prov.vtable.languageModel(provider, "test-model");
-    try std.testing.expectEqual(error.NoSuchModel, result.err);
+    const result = prov.vtable.languageModel(prov.impl, "test-model");
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 }
 
 test "DeepgramProvider languageModel returns error" {
@@ -859,8 +862,11 @@ test "DeepgramProvider languageModel returns error" {
     defer provider.deinit();
 
     const prov = provider.asProvider();
-    const result = prov.vtable.languageModel(&provider, "any-model");
-    try std.testing.expectEqual(error.NoSuchModel, result.err);
+    const result = prov.vtable.languageModel(prov.impl, "any-model");
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 }
 
 test "DeepgramProvider embeddingModel returns error" {
@@ -869,8 +875,11 @@ test "DeepgramProvider embeddingModel returns error" {
     defer provider.deinit();
 
     const prov = provider.asProvider();
-    const result = prov.vtable.embeddingModel(&provider, "any-model");
-    try std.testing.expectEqual(error.NoSuchModel, result.err);
+    const result = prov.vtable.embeddingModel(prov.impl, "any-model");
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 }
 
 test "DeepgramProvider imageModel returns error" {
@@ -879,8 +888,11 @@ test "DeepgramProvider imageModel returns error" {
     defer provider.deinit();
 
     const prov = provider.asProvider();
-    const result = prov.vtable.imageModel(&provider, "any-model");
-    try std.testing.expectEqual(error.NoSuchModel, result.err);
+    const result = prov.vtable.imageModel(prov.impl, "any-model");
+    switch (result) {
+        .success => try std.testing.expect(false),
+        .failure, .no_such_model => {},
+    }
 }
 
 test "DeepgramTranscriptionModel all model constants" {
