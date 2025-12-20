@@ -43,20 +43,35 @@ pub const GoogleVertexEmbeddingModel = struct {
     }
 
     /// Get the maximum embeddings per call
-    pub fn getMaxEmbeddingsPerCall(self: *const Self) usize {
+    pub fn getMaxEmbeddingsPerCall(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        ctx: ?*anyopaque,
+    ) void {
         _ = self;
-        return max_embeddings_per_call;
+        callback(ctx, @as(u32, max_embeddings_per_call));
+    }
+
+    /// Check if parallel calls are supported
+    pub fn getSupportsParallelCalls(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, bool) void,
+        ctx: ?*anyopaque,
+    ) void {
+        _ = self;
+        callback(ctx, supports_parallel_calls);
     }
 
     /// Generate embeddings
     pub fn doEmbed(
-        self: *Self,
-        values: []const []const u8,
-        provider_options: ?options_mod.GoogleVertexEmbeddingProviderOptions,
+        self: *const Self,
+        call_options: embedding.EmbeddingModelCallOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?embedding.EmbeddingModelV3.EmbedResult, ?anyerror, ?*anyopaque) void,
+        callback: *const fn (?*anyopaque, embedding.EmbeddingModelV3.EmbedResult) void,
         callback_context: ?*anyopaque,
     ) void {
+        const values = call_options.values;
+        const provider_options: ?options_mod.GoogleVertexEmbeddingProviderOptions = null;
         // Use arena for request processing
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
@@ -64,7 +79,7 @@ pub const GoogleVertexEmbeddingModel = struct {
 
         // Check max embeddings
         if (values.len > max_embeddings_per_call) {
-            callback(null, error.TooManyEmbeddingValues, callback_context);
+            callback(callback_context, .{ .failure = error.TooManyEmbeddingValues, callback_context);
             return;
         }
 
@@ -74,7 +89,7 @@ pub const GoogleVertexEmbeddingModel = struct {
             "{s}/models/{s}:predict",
             .{ self.config.base_url, self.model_id },
         ) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -86,32 +101,32 @@ pub const GoogleVertexEmbeddingModel = struct {
         for (values) |value| {
             var instance = std.json.ObjectMap.init(request_allocator);
             instance.put("content", .{ .string = value }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
 
             if (provider_options) |opts| {
                 if (opts.task_type) |task| {
                     instance.put("task_type", .{ .string = task.toString() }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
                 }
                 if (opts.title) |title| {
                     instance.put("title", .{ .string = title }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
                 }
             }
 
             instances.append(.{ .object = instance }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
         body.put("instances", .{ .array = instances }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -120,20 +135,20 @@ pub const GoogleVertexEmbeddingModel = struct {
         if (provider_options) |opts| {
             if (opts.output_dimensionality) |dim| {
                 parameters.put("outputDimensionality", .{ .integer = @intCast(dim) }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.auto_truncate) |truncate| {
                 parameters.put("autoTruncate", .{ .bool = truncate }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
         }
         if (parameters.count() > 0) {
             body.put("parameters", .{ .object = parameters }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -150,70 +165,43 @@ pub const GoogleVertexEmbeddingModel = struct {
         // For now, return placeholder result
         // Actual implementation would make HTTP request and parse response
         var embeddings = result_allocator.alloc([]f32, values.len) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
         var total_tokens: u32 = 0;
         for (embeddings, 0..) |*emb, i| {
             _ = i;
             emb.* = result_allocator.alloc(f32, 768) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
             @memset(emb.*, 0.0);
             total_tokens += 10; // Placeholder token count
         }
 
-        const result = embedding.EmbeddingModelV3.EmbedResult{
-            .embeddings = embeddings,
+        // Convert embeddings to proper format
+        var embed_list = std.ArrayList(embedding.EmbeddingModelV3Embedding).init(result_allocator);
+        for (embeddings) |emb| {
+            embed_list.append(.{ .embedding = .{ .float = emb } }) catch |err| {
+                callback(callback_context, .{ .failure = err });
+                return;
+            };
+        }
+
+        const result = embedding.EmbeddingModelV3.EmbedSuccess{
+            .embeddings = embed_list.toOwnedSlice() catch &[_]embedding.EmbeddingModelV3Embedding{},
             .usage = .{
                 .tokens = total_tokens,
             },
             .warnings = &[_]shared.SharedV3Warning{},
         };
 
-        callback(result, null, callback_context);
+        callback(callback_context, .{ .success = result });
     }
 
     /// Convert to EmbeddingModelV3 interface
     pub fn asEmbeddingModel(self: *Self) embedding.EmbeddingModelV3 {
-        return .{
-            .vtable = &vtable,
-            .impl = self,
-        };
-    }
-
-    const vtable = embedding.EmbeddingModelV3.VTable{
-        .doEmbed = doEmbedVtable,
-        .getModelId = getModelIdVtable,
-        .getProvider = getProviderVtable,
-        .getMaxEmbeddingsPerCall = getMaxEmbeddingsPerCallVtable,
-    };
-
-    fn doEmbedVtable(
-        impl: *anyopaque,
-        values: []const []const u8,
-        result_allocator: std.mem.Allocator,
-        callback: *const fn (?embedding.EmbeddingModelV3.EmbedResult, ?anyerror, ?*anyopaque) void,
-        callback_context: ?*anyopaque,
-    ) void {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        self.doEmbed(values, null, result_allocator, callback, callback_context);
-    }
-
-    fn getModelIdVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getModelId();
-    }
-
-    fn getProviderVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getProvider();
-    }
-
-    fn getMaxEmbeddingsPerCallVtable(impl: *anyopaque) usize {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getMaxEmbeddingsPerCall();
+        return embedding.asEmbeddingModel(Self, self);
     }
 };
 

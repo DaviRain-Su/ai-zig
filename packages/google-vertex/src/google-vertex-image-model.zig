@@ -40,26 +40,30 @@ pub const GoogleVertexImageModel = struct {
     }
 
     /// Get the maximum images per call
-    pub fn getMaxImagesPerCall(self: *const Self) u32 {
+    pub fn getMaxImagesPerCall(
+        self: *const Self,
+        callback: *const fn (?*anyopaque, ?u32) void,
+        ctx: ?*anyopaque,
+    ) void {
         _ = self;
-        return max_images_per_call;
+        callback(ctx, max_images_per_call);
     }
 
     /// Generate images
     pub fn doGenerate(
-        self: *Self,
+        self: *const Self,
         call_options: image.ImageModelV3CallOptions,
-        provider_options: ?options_mod.GoogleVertexImageProviderOptions,
         result_allocator: std.mem.Allocator,
-        callback: *const fn (?image.ImageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
+        callback: *const fn (?*anyopaque, image.ImageModelV3.GenerateResult) void,
         callback_context: ?*anyopaque,
     ) void {
+        const provider_options: ?options_mod.GoogleVertexImageProviderOptions = null;
         // Use arena for request processing
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        var warnings = std.array_list.Managed(shared.SharedV3Warning).init(request_allocator);
+        var warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
 
         // Check for size option (not supported)
         if (call_options.size != null) {
@@ -67,7 +71,7 @@ pub const GoogleVertexImageModel = struct {
                 .type = .unsupported,
                 .message = "size option not supported, use aspectRatio instead",
             }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -81,7 +85,7 @@ pub const GoogleVertexImageModel = struct {
             "{s}/models/{s}:predict",
             .{ self.config.base_url, self.model_id },
         ) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -94,7 +98,7 @@ pub const GoogleVertexImageModel = struct {
             var instance = std.json.ObjectMap.init(request_allocator);
 
             instance.put("prompt", .{ .string = call_options.prompt }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
 
@@ -104,27 +108,27 @@ pub const GoogleVertexImageModel = struct {
                 for (files, 0..) |file, i| {
                     var ref = std.json.ObjectMap.init(request_allocator);
                     ref.put("referenceType", .{ .string = "REFERENCE_TYPE_RAW" }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
                     ref.put("referenceId", .{ .integer = @intCast(i + 1) }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
 
                     // Add reference image data
                     var ref_image = std.json.ObjectMap.init(request_allocator);
                     ref_image.put("bytesBase64Encoded", .{ .string = file.data }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
                     ref.put("referenceImage", .{ .object = ref_image }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
 
                     reference_images.append(.{ .object = ref }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
                 }
@@ -134,23 +138,23 @@ pub const GoogleVertexImageModel = struct {
             if (call_options.mask) |mask| {
                 var ref = std.json.ObjectMap.init(request_allocator);
                 ref.put("referenceType", .{ .string = "REFERENCE_TYPE_MASK" }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
 
                 const files_len = if (call_options.files) |f| f.len else 0;
                 ref.put("referenceId", .{ .integer = @intCast(files_len + 1) }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
 
                 var ref_image = std.json.ObjectMap.init(request_allocator);
                 ref_image.put("bytesBase64Encoded", .{ .string = mask.data }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
                 ref.put("referenceImage", .{ .object = ref_image }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
 
@@ -160,13 +164,13 @@ pub const GoogleVertexImageModel = struct {
                     if (opts.edit) |edit| {
                         if (edit.mask_mode) |mm| {
                             mask_config.put("maskMode", .{ .string = mm.toString() }) catch |err| {
-                                callback(null, err, callback_context);
+                                callback(callback_context, .{ .failure = err });
                                 return;
                             };
                         }
                         if (edit.mask_dilation) |md| {
                             mask_config.put("dilation", .{ .float = md }) catch |err| {
-                                callback(null, err, callback_context);
+                                callback(callback_context, .{ .failure = err });
                                 return;
                             };
                         }
@@ -174,31 +178,31 @@ pub const GoogleVertexImageModel = struct {
                 }
                 if (mask_config.count() == 0) {
                     mask_config.put("maskMode", .{ .string = "MASK_MODE_USER_PROVIDED" }) catch |err| {
-                        callback(null, err, callback_context);
+                        callback(callback_context, .{ .failure = err });
                         return;
                     };
                 }
                 ref.put("maskImageConfig", .{ .object = mask_config }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
 
                 reference_images.append(.{ .object = ref }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
 
             instance.put("referenceImages", .{ .array = reference_images }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
             instances.append(.{ .object = instance }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
             body.put("instances", .{ .array = instances }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         } else {
@@ -206,15 +210,15 @@ pub const GoogleVertexImageModel = struct {
             var instances = std.json.Array.init(request_allocator);
             var instance = std.json.ObjectMap.init(request_allocator);
             instance.put("prompt", .{ .string = call_options.prompt }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
             instances.append(.{ .object = instance }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
             body.put("instances", .{ .array = instances }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -222,20 +226,20 @@ pub const GoogleVertexImageModel = struct {
         // Build parameters
         var parameters = std.json.ObjectMap.init(request_allocator);
         parameters.put("sampleCount", .{ .integer = @intCast(call_options.n orelse 1) }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
         if (call_options.aspect_ratio) |ar| {
             parameters.put("aspectRatio", .{ .string = ar }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
 
         if (call_options.seed) |seed| {
             parameters.put("seed", .{ .integer = @intCast(seed) }) catch |err| {
-                callback(null, err, callback_context);
+                callback(callback_context, .{ .failure = err });
                 return;
             };
         }
@@ -244,37 +248,37 @@ pub const GoogleVertexImageModel = struct {
         if (provider_options) |opts| {
             if (opts.negative_prompt) |np| {
                 parameters.put("negativePrompt", .{ .string = np }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.person_generation) |pg| {
                 parameters.put("personGeneration", .{ .string = pg.toString() }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.safety_setting) |ss| {
                 parameters.put("safetySetting", .{ .string = ss.toString() }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.add_watermark) |aw| {
                 parameters.put("addWatermark", .{ .bool = aw }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.storage_uri) |su| {
                 parameters.put("storageUri", .{ .string = su }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
             if (opts.sample_image_size) |sis| {
                 parameters.put("sampleImageSize", .{ .string = sis.toString() }) catch |err| {
-                    callback(null, err, callback_context);
+                    callback(callback_context, .{ .failure = err });
                     return;
                 };
             }
@@ -282,18 +286,18 @@ pub const GoogleVertexImageModel = struct {
                 if (opts.edit) |edit| {
                     if (edit.mode) |mode| {
                         parameters.put("editMode", .{ .string = mode.toString() }) catch |err| {
-                            callback(null, err, callback_context);
+                            callback(callback_context, .{ .failure = err });
                             return;
                         };
                     }
                     if (edit.base_steps) |bs| {
                         var edit_config = std.json.ObjectMap.init(request_allocator);
                         edit_config.put("baseSteps", .{ .integer = @intCast(bs) }) catch |err| {
-                            callback(null, err, callback_context);
+                            callback(callback_context, .{ .failure = err });
                             return;
                         };
                         parameters.put("editConfig", .{ .object = edit_config }) catch |err| {
-                            callback(null, err, callback_context);
+                            callback(callback_context, .{ .failure = err });
                             return;
                         };
                     }
@@ -302,7 +306,7 @@ pub const GoogleVertexImageModel = struct {
         }
 
         body.put("parameters", .{ .object = parameters }) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
 
@@ -318,7 +322,7 @@ pub const GoogleVertexImageModel = struct {
         // For now, return placeholder result
         const n = call_options.n orelse 1;
         var images = result_allocator.alloc([]const u8, n) catch |err| {
-            callback(null, err, callback_context);
+            callback(callback_context, .{ .failure = err });
             return;
         };
         for (images, 0..) |*img, i| {
@@ -326,54 +330,21 @@ pub const GoogleVertexImageModel = struct {
             img.* = ""; // Placeholder base64 data
         }
 
-        const result = image.ImageModelV3.GenerateResult{
-            .images = images,
+        const result = image.ImageModelV3.GenerateSuccess{
+            .images = .{ .base64 = images },
             .warnings = warnings.toOwnedSlice() catch &[_]shared.SharedV3Warning{},
-            .provider_metadata = null,
+            .response = .{
+                .timestamp = std.time.milliTimestamp(),
+                .model_id = self.model_id,
+            },
         };
 
-        callback(result, null, callback_context);
+        callback(callback_context, .{ .success = result });
     }
 
     /// Convert to ImageModelV3 interface
     pub fn asImageModel(self: *Self) image.ImageModelV3 {
-        return .{
-            .vtable = &vtable,
-            .impl = self,
-        };
-    }
-
-    const vtable = image.ImageModelV3.VTable{
-        .doGenerate = doGenerateVtable,
-        .getModelId = getModelIdVtable,
-        .getProvider = getProviderVtable,
-        .getMaxImagesPerCall = getMaxImagesPerCallVtable,
-    };
-
-    fn doGenerateVtable(
-        impl: *anyopaque,
-        call_options: image.ImageModelV3CallOptions,
-        result_allocator: std.mem.Allocator,
-        callback: *const fn (?image.ImageModelV3.GenerateResult, ?anyerror, ?*anyopaque) void,
-        callback_context: ?*anyopaque,
-    ) void {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(call_options, null, result_allocator, callback, callback_context);
-    }
-
-    fn getModelIdVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getModelId();
-    }
-
-    fn getProviderVtable(impl: *anyopaque) []const u8 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getProvider();
-    }
-
-    fn getMaxImagesPerCallVtable(impl: *anyopaque) u32 {
-        const self: *Self = @ptrCast(@alignCast(impl));
-        return self.getMaxImagesPerCall();
+        return image.asImageModel(Self, self);
     }
 };
 
