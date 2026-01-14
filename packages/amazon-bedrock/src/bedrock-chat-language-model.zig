@@ -73,11 +73,11 @@ pub const BedrockChatLanguageModel = struct {
         }
 
         // Serialize request body
-        var body_buffer = std.array_list.Managed(u8).init(request_allocator);
-        std.json.stringify(request_body, .{}, body_buffer.writer()) catch |err| {
+        const body_json = std.json.Stringify.valueAlloc(request_allocator, request_body, .{}) catch |err| {
             callback(null, err, callback_context);
             return;
         };
+        _ = body_json;
 
         _ = url;
         _ = headers;

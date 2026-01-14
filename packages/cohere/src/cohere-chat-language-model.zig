@@ -72,8 +72,7 @@ pub const CohereChatLanguageModel = struct {
         }
 
         // Serialize request body
-        var body_buffer = std.array_list.Managed(u8).init(request_allocator);
-        std.json.stringify(request_body, .{}, body_buffer.writer()) catch |err| {
+        const body_json = std.json.Stringify.valueAlloc(request_allocator, request_body, .{}) catch |err| {
             callback(null, err, callback_context);
             return;
         };
@@ -81,7 +80,7 @@ pub const CohereChatLanguageModel = struct {
         // These are used in actual implementation for HTTP request
         // but for now we just use placeholder result
         _ = url;
-        _ = body_buffer.items;
+        _ = body_json;
 
         // For now, return placeholder result
         const result = lm.LanguageModelV3.GenerateResult{

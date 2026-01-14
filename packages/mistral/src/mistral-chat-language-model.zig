@@ -73,16 +73,15 @@ pub const MistralChatLanguageModel = struct {
         }
 
         // Serialize request body
-        var body_buffer = std.ArrayList(u8).init(request_allocator);
-        std.json.stringify(request_body, .{}, body_buffer.writer()) catch |err| {
+        const body_json = std.json.Stringify.valueAlloc(request_allocator, request_body, .{}) catch |err| {
             callback(callback_context, .{ .failure = err });
             return;
         };
 
-        // TODO: Use url, headers, and body_buffer to make actual HTTP request
+        // TODO: Use url, headers, and body_json to make actual HTTP request
         _ = url;
         headers.deinit();
-        body_buffer.deinit();
+        request_allocator.free(body_json);
 
         // For now, return placeholder result
         const result = lm.LanguageModelV3.GenerateSuccess{

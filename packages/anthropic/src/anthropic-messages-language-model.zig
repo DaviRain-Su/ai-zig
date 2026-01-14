@@ -700,9 +700,7 @@ const StreamState = struct {
 
 /// Serialize request to JSON
 fn serializeRequest(allocator: std.mem.Allocator, request: api.AnthropicMessagesRequest) ![]const u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    try std.json.stringify(request, .{}, buffer.writer());
-    return buffer.toOwnedSlice();
+    return std.json.Stringify.valueAlloc(allocator, request, .{});
 }
 
 test "AnthropicMessagesLanguageModel basic" {

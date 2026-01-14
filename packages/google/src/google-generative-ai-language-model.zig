@@ -85,16 +85,15 @@ pub const GoogleGenerativeAILanguageModel = struct {
             std.StringHashMap([]const u8).init(request_allocator);
 
         // Serialize request body
-        var body_buffer = std.ArrayList(u8).init(request_allocator);
-        std.json.stringify(request_body, .{}, body_buffer.writer()) catch |err| {
+        const body_json = std.json.Stringify.valueAlloc(request_allocator, request_body, .{}) catch |err| {
             callback(callback_context, .{ .failure = err });
             return;
         };
 
-        // TODO: Make HTTP request with url, headers, and body_buffer.items
+        // TODO: Make HTTP request with url, headers, and body_json
         _ = url;
         _ = headers;
-        _ = body_buffer.items;
+        _ = body_json;
 
         // For now, return a placeholder result
         // Actual implementation would parse the response
