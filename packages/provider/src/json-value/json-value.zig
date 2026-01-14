@@ -20,6 +20,15 @@ pub const JsonValue = union(enum) {
         return fromStdJson(allocator, parsed.value);
     }
 
+    /// Custom JSON parsing for std.json.parseFromSlice compatibility (Zig 0.15+)
+    /// This allows JsonValue to be used as a field type in structs that are parsed with std.json.
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Self {
+        _ = options;
+        // Parse as std.json.Value first, then convert
+        const value = try std.json.Value.jsonParse(allocator, source, .{});
+        return fromStdJson(allocator, value);
+    }
+
     /// Convert from std.json.Value to our JsonValue type.
     pub fn fromStdJson(allocator: std.mem.Allocator, value: std.json.Value) !Self {
         return switch (value) {

@@ -242,7 +242,7 @@ pub const AnthropicMessagesLanguageModel = struct {
                         .tool_call = .{
                             .tool_call_id = try result_allocator.dupe(u8, tc.id),
                             .tool_name = try result_allocator.dupe(u8, tc.name),
-                            .input = try tc.input.clone(result_allocator),
+                            .input = try tc.input.stringify(result_allocator),
                         },
                     });
                 },
@@ -251,7 +251,7 @@ pub const AnthropicMessagesLanguageModel = struct {
                         .tool_call = .{
                             .tool_call_id = try result_allocator.dupe(u8, tc.id),
                             .tool_name = try result_allocator.dupe(u8, tc.name),
-                            .input = try tc.input.clone(result_allocator),
+                            .input = try tc.input.stringify(result_allocator),
                         },
                     });
                 },
@@ -392,7 +392,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         };
 
         // Convert headers HashMap to slice for HttpClient.Request
-        var header_list: [64]http.HttpClient.Header = undefined;
+        var header_list: [64]provider_utils.HttpHeader = undefined;
         var header_count: usize = 0;
         var headers_iter = headers.iterator();
         while (headers_iter.next()) |entry| {
@@ -405,7 +405,7 @@ pub const AnthropicMessagesLanguageModel = struct {
         }
 
         // Build the HTTP request
-        const req = http.HttpClient.Request{
+        const req = provider_utils.HttpRequest{
             .method = .POST,
             .url = url,
             .headers = header_list[0..header_count],
@@ -417,9 +417,8 @@ pub const AnthropicMessagesLanguageModel = struct {
             .on_chunk = struct {
                 fn onChunk(ctx: ?*anyopaque, chunk: []const u8) void {
                     const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
-                    state.processChunk(chunk) catch |err| {
-                        _ = err;
-                        // Error handling in processChunk
+                    state.processChunk(chunk) catch {
+                        // Error handling in processChunk - silently ignore
                     };
                 }
             }.onChunk,
@@ -430,7 +429,7 @@ pub const AnthropicMessagesLanguageModel = struct {
                 }
             }.onComplete,
             .on_error = struct {
-                fn onError(ctx: ?*anyopaque, err: http.HttpClient.HttpError) void {
+                fn onError(ctx: ?*anyopaque, err: provider_utils.HttpError) void {
                     const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
                     _ = err;
                     state.callbacks.on_error(state.callbacks.ctx, error.HttpError);
@@ -486,7 +485,29 @@ pub const AnthropicMessagesLanguageModel = struct {
         context: ?*anyopaque,
     ) void {
         const self: *Self = @ptrCast(@alignCast(impl));
-        self.doGenerate(options, allocator, callback, context);
+        // Wrap callback to convert result type
+        const Wrapper = struct {
+            fn wrap(ctx: ?*anyopaque, result: GenerateResult) void {
+                const cb_data = @as(*const struct { cb: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void, user_ctx: ?*anyopaque }, @ptrCast(@alignCast(ctx.?)));
+                switch (result) {
+                    .success => |ok| {
+                        cb_data.cb(cb_data.user_ctx, .{
+                            .success = .{
+                                .content = ok.content,
+                                .finish_reason = ok.finish_reason,
+                                .usage = ok.usage,
+                                .warnings = ok.warnings,
+                            },
+                        });
+                    },
+                    .failure => |err| {
+                        cb_data.cb(cb_data.user_ctx, .{ .failure = err });
+                    },
+                }
+            }
+        };
+        var wrapper_data = .{ .cb = callback, .user_ctx = context };
+        self.doGenerate(options, allocator, Wrapper.wrap, @ptrCast(&wrapper_data));
     }
 
     fn doStreamVtable(
@@ -502,8 +523,8 @@ pub const AnthropicMessagesLanguageModel = struct {
 
 /// Result of generate call
 pub const GenerateResult = union(enum) {
-    ok: GenerateResultOk,
-    err: anyerror,
+    success: GenerateResultOk,
+    failure: anyerror,
 };
 
 pub const GenerateResultOk = struct {
@@ -520,7 +541,7 @@ const ContentBlockState = struct {
     block_type: BlockType,
     tool_call_id: ?[]const u8 = null,
     tool_name: ?[]const u8 = null,
-    input: std.ArrayList(u8),
+    input: std.array_list.Managed(u8),
 
     const BlockType = enum {
         text,
@@ -667,7 +688,7 @@ const StreamState = struct {
                             .tool_call = .{
                                 .tool_call_id = block.tool_call_id orelse "",
                                 .tool_name = block.tool_name orelse "",
-                                .input = json_value.JsonValue.parse(self.result_allocator, block.input.items) catch .{ .object = json_value.JsonObject.init(self.result_allocator) },
+                                .input = try self.result_allocator.dupe(u8, block.input.items),
                             },
                         });
                     },
@@ -698,7 +719,8 @@ const StreamState = struct {
                 self.finish_reason = .@"error";
                 self.callbacks.on_part(self.callbacks.ctx, .{
                     .@"error" = .{
-                        .error_value = .{ .message = err.message },
+                        .err = error.AnthropicError,
+                        .message = err.message,
                     },
                 });
             }
