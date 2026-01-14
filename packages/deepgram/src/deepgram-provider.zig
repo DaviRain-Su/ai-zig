@@ -80,8 +80,9 @@ pub const DeepgramTranscriptionModel = struct {
         self: *const Self,
         options: TranscriptionOptions,
     ) ![]const u8 {
-        var params = std.array_list.Managed(u8).init(self.allocator);
-        var writer = params.writer();
+        var params: std.Io.Writer.Allocating = .init(self.allocator);
+        errdefer params.deinit();
+        const writer = &params.writer;
 
         try writer.print("model={s}", .{self.model_id});
 

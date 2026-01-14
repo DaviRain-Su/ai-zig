@@ -99,9 +99,9 @@ pub const ApiCallError = struct {
 
     /// Format for display
     pub fn format(self: Self, allocator: std.mem.Allocator) ![]const u8 {
-        var list = std.array_list.Managed(u8).init(allocator);
+        var list: std.Io.Writer.Allocating = .init(allocator);
         errdefer list.deinit();
-        const writer = list.writer();
+        const writer = &list.writer;
 
         try writer.print("API call failed: {s}\n", .{self.info.message});
         try writer.print("URL: {s}\n", .{self.url()});

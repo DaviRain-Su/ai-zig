@@ -162,19 +162,19 @@ fn getSourceContext(allocator: std.mem.Allocator, file_path: []const u8, line_nu
 
     var lines = std.mem.tokenizeScalar(u8, content, '\n');
     var current_line: u32 = 1;
-    var context = std.ArrayList(u8){};
-    defer context.deinit(allocator);
+    var context: std.Io.Writer.Allocating = .init(allocator);
 
     // Get 3 lines before and after
     const start_line = if (line_number > 3) line_number - 3 else 1;
     const end_line = line_number + 3;
 
+    const writer = &context.writer;
     while (lines.next()) |line| {
         if (current_line >= start_line and current_line <= end_line) {
             const is_error_line = current_line == line_number;
 
             if (is_error_line) {
-                context.writer().print("{s}{s} {d:>4} │{s} {s}{s}{s}\n", .{
+                writer.print("{s}{s} {d:>4} │{s} {s}{s}{s}\n", .{
                     Color.bg_red,
                     Color.white,
                     current_line,
@@ -184,7 +184,7 @@ fn getSourceContext(allocator: std.mem.Allocator, file_path: []const u8, line_nu
                     Color.reset,
                 }) catch {};
             } else {
-                context.writer().print("{s} {d:>4} │{s} {s}\n", .{
+                writer.print("{s} {d:>4} │{s} {s}\n", .{
                     Color.gray,
                     current_line,
                     Color.reset,
@@ -196,7 +196,11 @@ fn getSourceContext(allocator: std.mem.Allocator, file_path: []const u8, line_nu
         if (current_line > end_line) break;
     }
 
-    return context.toOwnedSlice(allocator) catch null;
+    const slice = context.toOwnedSlice() catch {
+        context.deinit();
+        return null;
+    };
+    return slice;
 }
 
 fn runTestInProcess(allocator: std.mem.Allocator, test_index: usize) !TestResult {

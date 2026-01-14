@@ -1,6 +1,7 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model;
+const shared = @import("provider").shared;
+const provider_utils = @import("provider-utils");
 
 const config_mod = @import("deepseek-config.zig");
 const options_mod = @import("deepseek-options.zig");
@@ -46,39 +47,187 @@ pub const DeepSeekChatLanguageModel = struct {
         callback: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void,
         callback_context: ?*anyopaque,
     ) void {
+        // Check if HTTP client is available
+        const http_client = self.config.http_client orelse {
+            callback(callback_context, .{ .failure = error.NoHttpClient });
+            return;
+        };
+
         var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
         const request_allocator = arena.allocator();
 
+        // Build request body
         const request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
+            arena.deinit();
             callback(callback_context, .{ .failure = err });
             return;
         };
 
+        // Serialize to JSON using std.json.Stringify.valueAlloc
+        const body_json = std.json.Stringify.valueAlloc(request_allocator, request_body, .{}) catch |err| {
+            arena.deinit();
+            callback(callback_context, .{ .failure = err });
+            return;
+        };
+
+        // Build URL
         const url = config_mod.buildChatCompletionsUrl(
             request_allocator,
             self.config.base_url,
         ) catch |err| {
+            arena.deinit();
             callback(callback_context, .{ .failure = err });
             return;
         };
 
-        _ = url;
-        _ = request_body;
+        // Get headers
+        var headers = self.config.getHeaders(request_allocator);
 
-        const result = lm.LanguageModelV3.GenerateSuccess{
-            .content = &[_]lm.LanguageModelV3Content{},
-            .finish_reason = .stop,
-            .usage = .{
-                .prompt_tokens = 0,
-                .completion_tokens = 0,
-            },
-            .warnings = &[_]shared.SharedV3Warning{},
+        // Convert headers to slice
+        var header_list: [64]provider_utils.HttpHeader = undefined;
+        var header_count: usize = 0;
+        var headers_iter = headers.iterator();
+        while (headers_iter.next()) |entry| {
+            if (header_count >= 64) break;
+            header_list[header_count] = .{
+                .name = entry.key_ptr.*,
+                .value = entry.value_ptr.*,
+            };
+            header_count += 1;
+        }
+
+        // Build HTTP request
+        const req = provider_utils.HttpRequest{
+            .method = .POST,
+            .url = url,
+            .headers = header_list[0..header_count],
+            .body = body_json,
         };
 
-        _ = result_allocator;
-        callback(callback_context, .{ .success = result });
+        // Create callback context that stores all necessary data
+        const CallbackCtx = struct {
+            arena: std.heap.ArenaAllocator,
+            result_allocator: std.mem.Allocator,
+            callback: *const fn (?*anyopaque, lm.LanguageModelV3.GenerateResult) void,
+            callback_context: ?*anyopaque,
+        };
+
+        const ctx_ptr = request_allocator.create(CallbackCtx) catch {
+            arena.deinit();
+            callback(callback_context, .{ .failure = error.OutOfMemory });
+            return;
+        };
+        ctx_ptr.* = .{
+            .arena = arena,
+            .result_allocator = result_allocator,
+            .callback = callback,
+            .callback_context = callback_context,
+        };
+
+        // Make request
+        http_client.request(
+            req,
+            request_allocator,
+            struct {
+                fn onResponse(ctx: ?*anyopaque, response: provider_utils.HttpResponse) void {
+                    const c: *CallbackCtx = @ptrCast(@alignCast(ctx));
+                    defer c.arena.deinit();
+
+                    // Check status
+                    if (!response.isSuccess()) {
+                        c.callback(c.callback_context, .{ .failure = error.HttpError });
+                        return;
+                    }
+
+                    // Parse response
+                    const parsed = std.json.parseFromSlice(DeepSeekResponse, c.result_allocator, response.body, .{
+                        .ignore_unknown_fields = true,
+                    }) catch {
+                        c.callback(c.callback_context, .{ .failure = error.InvalidResponse });
+                        return;
+                    };
+                    const deep_response = parsed.value;
+
+                    // Extract content from first choice
+                    if (deep_response.choices.len == 0) {
+                        c.callback(c.callback_context, .{ .failure = error.EmptyResponse });
+                        return;
+                    }
+
+                    const first_choice = deep_response.choices[0];
+                    const message_content = first_choice.message.content orelse "";
+
+                    // Allocate content in result allocator
+                    var content_list: std.ArrayList(lm.LanguageModelV3Content) = .empty;
+                    const text_copy = c.result_allocator.dupe(u8, message_content) catch {
+                        c.callback(c.callback_context, .{ .failure = error.OutOfMemory });
+                        return;
+                    };
+                    content_list.append(c.result_allocator, .{
+                        .text = .{ .text = text_copy },
+                    }) catch {
+                        c.callback(c.callback_context, .{ .failure = error.OutOfMemory });
+                        return;
+                    };
+
+                    // Map finish reason
+                    const finish_reason = map_finish.mapDeepSeekFinishReason(first_choice.finish_reason);
+
+                    // Build usage
+                    var usage = lm.LanguageModelV3Usage.init();
+                    if (deep_response.usage) |u| {
+                        usage.input_tokens = .{ .total = u.prompt_tokens };
+                        usage.output_tokens = .{ .total = u.completion_tokens };
+                    }
+
+                    c.callback(c.callback_context, .{
+                        .success = .{
+                            .content = content_list.items,
+                            .finish_reason = finish_reason,
+                            .usage = usage,
+                            .warnings = &[_]shared.SharedV3Warning{},
+                        },
+                    });
+                }
+            }.onResponse,
+            struct {
+                fn onError(ctx: ?*anyopaque, err: provider_utils.HttpError) void {
+                    _ = err;
+                    const c: *CallbackCtx = @ptrCast(@alignCast(ctx));
+                    defer c.arena.deinit();
+                    c.callback(c.callback_context, .{ .failure = error.HttpError });
+                }
+            }.onError,
+            ctx_ptr,
+        );
     }
+
+    /// DeepSeek API response structure (OpenAI-compatible format)
+    const DeepSeekResponse = struct {
+        id: []const u8 = "",
+        object: []const u8 = "",
+        created: i64 = 0,
+        model: []const u8 = "",
+        choices: []const DeepSeekChoice = &[_]DeepSeekChoice{},
+        usage: ?DeepSeekUsage = null,
+    };
+
+    const DeepSeekChoice = struct {
+        index: u32 = 0,
+        message: DeepSeekMessage = .{},
+        finish_reason: ?[]const u8 = null,
+    };
+
+    const DeepSeekMessage = struct {
+        role: []const u8 = "",
+        content: ?[]const u8 = null,
+    };
+
+    const DeepSeekUsage = struct {
+        prompt_tokens: u64 = 0,
+        completion_tokens: u64 = 0,
+        total_tokens: u64 = 0,
+    };
 
     /// Stream content
     pub fn doStream(
@@ -108,10 +257,7 @@ pub const DeepSeekChatLanguageModel = struct {
         callbacks.on_part(callbacks.ctx, .{
             .finish = .{
                 .finish_reason = .stop,
-                .usage = .{
-                    .prompt_tokens = 0,
-                    .completion_tokens = 0,
-                },
+                .usage = lm.LanguageModelV3Usage.init(),
             },
         });
         callbacks.on_complete(callbacks.ctx, null);
@@ -141,10 +287,11 @@ pub const DeepSeekChatLanguageModel = struct {
                     var message = std.json.ObjectMap.init(allocator);
                     try message.put("role", .{ .string = "user" });
 
-                    var text_parts = std.ArrayList([]const u8).init(allocator);
+                    var text_parts: std.ArrayList([]const u8) = .empty;
+                    defer text_parts.deinit(allocator);
                     for (msg.content.user) |part| {
                         switch (part) {
-                            .text => |t| try text_parts.append(t.text),
+                            .text => |t| try text_parts.append(allocator, t.text),
                             else => {},
                         }
                     }
@@ -157,12 +304,13 @@ pub const DeepSeekChatLanguageModel = struct {
                     var message = std.json.ObjectMap.init(allocator);
                     try message.put("role", .{ .string = "assistant" });
 
-                    var text_content = std.ArrayList([]const u8).init(allocator);
+                    var text_content: std.ArrayList([]const u8) = .empty;
+                    defer text_content.deinit(allocator);
                     var tool_calls = std.json.Array.init(allocator);
 
                     for (msg.content.assistant) |part| {
                         switch (part) {
-                            .text => |t| try text_content.append(t.text),
+                            .text => |t| try text_content.append(allocator, t.text),
                             .tool_call => |tc| {
                                 var tool_call = std.json.ObjectMap.init(allocator);
                                 try tool_call.put("id", .{ .string = tc.tool_call_id });
@@ -170,7 +318,9 @@ pub const DeepSeekChatLanguageModel = struct {
 
                                 var func = std.json.ObjectMap.init(allocator);
                                 try func.put("name", .{ .string = tc.tool_name });
-                                try func.put("arguments", .{ .string = tc.input });
+                                // tc.input is JsonValue, stringify it for DeepSeek API
+                                const input_str = try tc.input.stringify(allocator);
+                                try func.put("arguments", .{ .string = input_str });
                                 try tool_call.put("function", .{ .object = func });
 
                                 try tool_calls.append(.{ .object = tool_call });
@@ -244,7 +394,8 @@ pub const DeepSeekChatLanguageModel = struct {
                         if (func.description) |desc| {
                             try func_obj.put("description", .{ .string = desc });
                         }
-                        try func_obj.put("parameters", func.input_schema);
+                        // func.input_schema is JsonValue, convert to std.json.Value
+                        try func_obj.put("parameters", try func.input_schema.toStdJson(allocator));
 
                         try tool_obj.put("function", .{ .object = func_obj });
                         try tools_array.append(.{ .object = tool_obj });
@@ -266,7 +417,6 @@ pub const DeepSeekChatLanguageModel = struct {
         ctx: ?*anyopaque,
     ) void {
         _ = self;
-        _ = allocator;
         callback(ctx, .{ .success = std.StringHashMap([]const []const u8).init(allocator) });
     }
 

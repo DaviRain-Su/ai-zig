@@ -240,10 +240,6 @@ pub fn generateText(
     allocator: std.mem.Allocator,
     options: GenerateTextOptions,
 ) GenerateTextError!GenerateTextResult {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
     // Validate options
     if (options.prompt == null and options.messages == null) {
         return GenerateTextError.InvalidPrompt;
@@ -252,97 +248,122 @@ pub fn generateText(
         return GenerateTextError.InvalidPrompt;
     }
 
-    // Build initial prompt
-    var messages = std.array_list.Managed(Message).init(arena_allocator);
+    // Build prompt for the language model
+    var prompt_messages: std.ArrayList(provider_types.LanguageModelV3Message) = .empty;
+    defer prompt_messages.deinit(allocator);
 
+    // Add system message if present
     if (options.system) |sys| {
-        messages.append(.{
+        try prompt_messages.append(allocator, .{
             .role = .system,
-            .content = .{ .text = sys },
-        }) catch return GenerateTextError.OutOfMemory;
+            .content = .{ .system = sys },
+        });
     }
 
+    // Add user message from prompt
     if (options.prompt) |p| {
-        messages.append(.{
-            .role = .user,
-            .content = .{ .text = p },
-        }) catch return GenerateTextError.OutOfMemory;
-    } else if (options.messages) |msgs| {
-        for (msgs) |msg| {
-            messages.append(msg) catch return GenerateTextError.OutOfMemory;
-        }
+        try prompt_messages.append(allocator, try provider_types.language_model.userTextMessage(allocator, p));
     }
 
-    // Track steps
-    var steps = std.array_list.Managed(StepResult).init(arena_allocator);
-    var total_usage = LanguageModelUsage{};
+    // Build call options - temperature needs to be f32
+    const temp_f32: ?f32 = if (options.settings.temperature) |t| @floatCast(t) else null;
+    const top_p_f32: ?f32 = if (options.settings.top_p) |t| @floatCast(t) else null;
 
-    // Multi-step loop
-    var step_count: u32 = 0;
-    while (step_count < options.max_steps) : (step_count += 1) {
-        // TODO: Call model.doGenerate with prepared prompt
-        // For now, create a placeholder response
+    const call_options = provider_types.LanguageModelV3CallOptions{
+        .prompt = prompt_messages.items,
+        .max_output_tokens = options.settings.max_output_tokens,
+        .temperature = temp_f32,
+        .top_p = top_p_f32,
+        .top_k = options.settings.top_k,
+        .stop_sequences = options.settings.stop_sequences,
+    };
 
-        const step_result = StepResult{
-            .content = &[_]ContentPart{},
-            .text = "",
-            .reasoning_text = null,
-            .finish_reason = .stop,
-            .usage = .{},
-            .tool_calls = &[_]ToolCall{},
-            .tool_results = &[_]ToolResult{},
-            .response = .{
-                .id = "placeholder",
-                .model_id = "placeholder",
-                .timestamp = std.time.timestamp(),
-            },
-            .warnings = null,
-        };
+    // Context to capture the result from callback
+    const ResultCapture = struct {
+        result: ?LanguageModelV3.GenerateResult = null,
+        completed: bool = false,
+    };
+    var capture = ResultCapture{};
 
-        total_usage = total_usage.add(step_result.usage);
-        steps.append(step_result) catch return GenerateTextError.OutOfMemory;
+    // Call the model's doGenerate with a callback that captures the result
+    options.model.doGenerate(
+        call_options,
+        allocator,
+        struct {
+            fn callback(ctx: ?*anyopaque, result: LanguageModelV3.GenerateResult) void {
+                const c: *ResultCapture = @ptrCast(@alignCast(ctx.?));
+                c.result = result;
+                c.completed = true;
+            }
+        }.callback,
+        &capture,
+    );
 
-        // Call step callback if provided
-        if (options.on_step_finish) |callback| {
-            callback(step_result, options.callback_context);
-        }
-
-        // Check if we should continue (tool calls present and not all resolved)
-        if (step_result.finish_reason != .tool_calls) {
-            break;
-        }
-
-        // Execute tools and add results to messages
-        // TODO: Implement tool execution
+    // Check if we got a result
+    if (!capture.completed or capture.result == null) {
+        return GenerateTextError.ModelError;
     }
 
-    const final_step = if (steps.items.len > 0) steps.items[steps.items.len - 1] else StepResult{
-        .content = &[_]ContentPart{},
-        .text = "",
-        .finish_reason = .stop,
-        .usage = .{},
-        .tool_calls = &[_]ToolCall{},
-        .tool_results = &[_]ToolResult{},
-        .response = .{
-            .id = "",
-            .model_id = "",
-            .timestamp = 0,
+    // Handle result
+    switch (capture.result.?) {
+        .success => |success| {
+            // Extract text from content
+            var text_parts: std.ArrayList([]const u8) = .empty;
+            defer text_parts.deinit(allocator);
+
+            for (success.content) |content| {
+                switch (content) {
+                    .text => |t| {
+                        try text_parts.append(allocator, t.text);
+                    },
+                    else => {},
+                }
+            }
+
+            const combined_text = if (text_parts.items.len > 0)
+                try std.mem.join(allocator, "", text_parts.items)
+            else
+                try allocator.dupe(u8, "");
+
+            // Map finish reason
+            const finish_reason: FinishReason = switch (success.finish_reason) {
+                .stop => .stop,
+                .length => .length,
+                .tool_calls => .tool_calls,
+                .content_filter => .content_filter,
+                .@"error" => .other,
+                .other => .other,
+                .unknown => .unknown,
+            };
+
+            // Build usage
+            const usage = LanguageModelUsage{
+                .input_tokens = success.usage.input_tokens.total,
+                .output_tokens = success.usage.output_tokens.total,
+            };
+
+            return GenerateTextResult{
+                .text = combined_text,
+                .reasoning_text = null,
+                .content = &[_]ContentPart{},
+                .tool_calls = &[_]ToolCall{},
+                .tool_results = &[_]ToolResult{},
+                .finish_reason = finish_reason,
+                .usage = usage,
+                .total_usage = usage,
+                .response = .{
+                    .id = "response",
+                    .model_id = options.model.getModelId(),
+                    .timestamp = std.time.timestamp(),
+                },
+                .steps = &[_]StepResult{},
+                .warnings = null,
+            };
         },
-    };
-
-    return GenerateTextResult{
-        .text = final_step.text,
-        .reasoning_text = final_step.reasoning_text,
-        .content = final_step.content,
-        .tool_calls = final_step.tool_calls,
-        .tool_results = final_step.tool_results,
-        .finish_reason = final_step.finish_reason,
-        .usage = final_step.usage,
-        .total_usage = total_usage,
-        .response = final_step.response,
-        .steps = steps.toOwnedSlice() catch return GenerateTextError.OutOfMemory,
-        .warnings = final_step.warnings,
-    };
+        .failure => {
+            return GenerateTextError.ModelError;
+        },
+    }
 }
 
 test "GenerateTextOptions default values" {

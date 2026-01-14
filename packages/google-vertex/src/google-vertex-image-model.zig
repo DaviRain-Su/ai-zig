@@ -63,11 +63,12 @@ pub const GoogleVertexImageModel = struct {
         defer arena.deinit();
         const request_allocator = arena.allocator();
 
-        var warnings = std.ArrayList(shared.SharedV3Warning).init(request_allocator);
+        var warnings: std.ArrayList(shared.SharedV3Warning) = .{};
+        errdefer warnings.deinit(request_allocator);
 
         // Check for size option (not supported)
         if (call_options.size != null) {
-            warnings.append(.{
+            warnings.append(request_allocator, .{
                 .type = .unsupported,
                 .message = "size option not supported, use aspectRatio instead",
             }) catch |err| {
@@ -332,7 +333,7 @@ pub const GoogleVertexImageModel = struct {
 
         const result = image.ImageModelV3.GenerateSuccess{
             .images = .{ .base64 = images },
-            .warnings = warnings.toOwnedSlice() catch &[_]shared.SharedV3Warning{},
+            .warnings = warnings.toOwnedSlice(request_allocator) catch &[_]shared.SharedV3Warning{},
             .response = .{
                 .timestamp = std.time.milliTimestamp(),
                 .model_id = self.model_id,

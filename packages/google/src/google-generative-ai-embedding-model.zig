@@ -233,16 +233,17 @@ pub const GoogleGenerativeAIEmbeddingModel = struct {
         }
 
         // Convert embeddings to proper format
-        var embed_list = std.ArrayList(embedding.EmbeddingModelV3Embedding).init(result_allocator);
+        var embed_list: std.ArrayList(embedding.EmbeddingModelV3Embedding) = .{};
+        errdefer embed_list.deinit(result_allocator);
         for (embeddings) |emb| {
-            embed_list.append(.{ .embedding = .{ .float = emb } }) catch |err| {
+            embed_list.append(result_allocator, .{ .embedding = .{ .float = emb } }) catch |err| {
                 callback(callback_context, .{ .failure = err });
                 return;
             };
         }
 
         const result = embedding.EmbeddingModelV3.EmbedSuccess{
-            .embeddings = embed_list.toOwnedSlice() catch &[_]embedding.EmbeddingModelV3Embedding{},
+            .embeddings = embed_list.toOwnedSlice(result_allocator) catch &[_]embedding.EmbeddingModelV3Embedding{},
             .usage = null,
             .warnings = &[_]shared.SharedV3Warning{},
         };

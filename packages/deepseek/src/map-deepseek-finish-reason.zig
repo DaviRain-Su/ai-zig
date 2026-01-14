@@ -1,5 +1,5 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const lm = @import("provider").language_model;
 
 /// Map DeepSeek finish reason to language model finish reason
 pub fn mapDeepSeekFinishReason(
@@ -18,7 +18,7 @@ pub fn mapDeepSeekFinishReason(
     } else if (std.mem.eql(u8, reason, "tool_calls")) {
         return .tool_calls;
     } else if (std.mem.eql(u8, reason, "insufficient_system_resource")) {
-        return .err;
+        return .@"error";
     }
 
     return .unknown;
@@ -41,5 +41,5 @@ test "mapDeepSeekFinishReason tool_calls" {
 
 test "mapDeepSeekFinishReason insufficient_system_resource" {
     const result = mapDeepSeekFinishReason("insufficient_system_resource");
-    try std.testing.expectEqual(lm.LanguageModelV3FinishReason.err, result);
+    try std.testing.expectEqual(lm.LanguageModelV3FinishReason.@"error", result);
 }

@@ -120,8 +120,9 @@ pub fn generateObject(
     }
 
     // Build system prompt with schema instructions
-    var system_parts = std.array_list.Managed(u8).init(arena_allocator);
-    const writer = system_parts.writer();
+    var system_parts: std.Io.Writer.Allocating = .init(arena_allocator);
+    defer system_parts.deinit();
+    const writer = &system_parts.writer;
 
     if (options.system) |sys| {
         writer.writeAll(sys) catch return GenerateObjectError.OutOfMemory;

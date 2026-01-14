@@ -1,5 +1,6 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
+const provider_v3 = @import("provider").provider;
+const provider_utils = @import("provider-utils");
 
 const config_mod = @import("deepseek-config.zig");
 const chat_model = @import("deepseek-chat-language-model.zig");
@@ -15,8 +16,8 @@ pub const DeepSeekProviderSettings = struct {
     /// Custom headers
     headers: ?std.StringHashMap([]const u8) = null,
 
-    /// HTTP client
-    http_client: ?*anyopaque = null,
+    /// HTTP client (optional, will create default if not provided)
+    http_client: ?provider_utils.HttpClient = null,
 };
 
 /// DeepSeek Provider
@@ -26,6 +27,7 @@ pub const DeepSeekProvider = struct {
     allocator: std.mem.Allocator,
     settings: DeepSeekProviderSettings,
     base_url: []const u8,
+    std_http_client: ?provider_utils.http.std_client.StdHttpClient,
 
     pub const specification_version = "v3";
 
@@ -37,12 +39,15 @@ pub const DeepSeekProvider = struct {
             .allocator = allocator,
             .settings = settings,
             .base_url = base_url,
+            .std_http_client = if (settings.http_client == null) provider_utils.createStdHttpClient(allocator) else null,
         };
     }
 
     /// Deinitialize the provider
     pub fn deinit(self: *Self) void {
-        _ = self;
+        if (self.std_http_client) |*client| {
+            client.deinit();
+        }
     }
 
     /// Get the provider name
@@ -67,11 +72,20 @@ pub const DeepSeekProvider = struct {
 
     /// Build config for models
     fn buildConfig(self: *Self, provider_name: []const u8) config_mod.DeepSeekConfig {
+        // Get HTTP client - use provided one or create a default
+        const http_client = self.settings.http_client orelse blk: {
+            if (self.std_http_client) |*client| {
+                break :blk client.asInterface();
+            }
+            break :blk null;
+        };
+
         return .{
             .provider = provider_name,
             .base_url = self.base_url,
+            .api_key = self.settings.api_key,
             .headers_fn = getHeadersFn,
-            .http_client = self.settings.http_client,
+            .http_client = http_client,
         };
     }
 
@@ -122,17 +136,18 @@ fn getApiKeyFromEnv() ?[]const u8 {
     return std.posix.getenv("DEEPSEEK_API_KEY");
 }
 
-fn getHeadersFn(config: *const config_mod.DeepSeekConfig) std.StringHashMap([]const u8) {
-    _ = config;
-    var headers = std.StringHashMap([]const u8).init(std.heap.page_allocator);
+fn getHeadersFn(config: *const config_mod.DeepSeekConfig, allocator: std.mem.Allocator) std.StringHashMap([]const u8) {
+    var headers = std.StringHashMap([]const u8).init(allocator);
 
     headers.put("Content-Type", "application/json") catch {};
 
-    if (getApiKeyFromEnv()) |api_key| {
+    // 优先使用配置中的 API key，然后回退到环境变量
+    const api_key = config.api_key orelse getApiKeyFromEnv();
+    if (api_key) |key| {
         const auth_header = std.fmt.allocPrint(
-            std.heap.page_allocator,
+            allocator,
             "Bearer {s}",
-            .{api_key},
+            .{key},
         ) catch return headers;
         headers.put("Authorization", auth_header) catch {};
     }

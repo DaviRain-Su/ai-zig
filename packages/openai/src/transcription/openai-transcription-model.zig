@@ -302,8 +302,9 @@ const FormPart = struct {
 
 /// Build multipart form body
 fn buildMultipartBody(allocator: std.mem.Allocator, parts: []const FormPart, boundary: []const u8) ![]const u8 {
-    var buffer = std.array_list.Managed(u8).init(allocator);
-    const writer = buffer.writer();
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
+    errdefer buffer.deinit();
+    const writer = &buffer.writer;
 
     for (parts) |part| {
         try writer.print("--{s}\r\n", .{boundary});
