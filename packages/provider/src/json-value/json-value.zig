@@ -242,6 +242,33 @@ pub const JsonValue = union(enum) {
         }
     }
 
+    /// Custom JSON serialization for std.json.Stringify compatibility (Zig 0.15+)
+    pub fn jsonStringify(self: *const Self, jw: anytype) !void {
+        switch (self.*) {
+            .null => try jw.write(null),
+            .bool => |b| try jw.write(b),
+            .integer => |i| try jw.write(i),
+            .float => |f| try jw.write(f),
+            .string => |s| try jw.write(s),
+            .array => |arr| {
+                try jw.beginArray();
+                for (arr) |item| {
+                    try item.jsonStringify(jw);
+                }
+                try jw.endArray();
+            },
+            .object => |obj| {
+                try jw.beginObject();
+                var iter = obj.iterator();
+                while (iter.next()) |entry| {
+                    try jw.objectField(entry.key_ptr.*);
+                    try entry.value_ptr.jsonStringify(jw);
+                }
+                try jw.endObject();
+            },
+        }
+    }
+
     /// Deep clone a JsonValue.
     pub fn clone(self: Self, allocator: std.mem.Allocator) !Self {
         return switch (self) {

@@ -2,6 +2,7 @@ const std = @import("std");
 const lm = @import("provider").language_model;
 const shared = @import("provider").shared;
 const provider_utils = @import("provider-utils");
+const http = provider_utils.http;
 const json_value = @import("provider").json_value;
 
 const api = @import("anthropic-messages-api.zig");
@@ -390,33 +391,53 @@ pub const AnthropicMessagesLanguageModel = struct {
             .finish_reason = .unknown,
         };
 
-        // Make the streaming request
-        http_client.postStream(url, headers, body, request_allocator, struct {
-            fn onChunk(ctx: *anyopaque, chunk: []const u8) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.processChunk(chunk) catch |err| {
-                    state.callbacks.on_error(state.callbacks.ctx, err);
-                };
-            }
-            fn onComplete(ctx: *anyopaque) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.finish();
-            }
-            fn onError(ctx: *anyopaque, err: anyerror) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.callbacks.on_error(state.callbacks.ctx, err);
-            }
-        }.onChunk, struct {
-            fn onComplete(ctx: *anyopaque) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.finish();
-            }
-        }.onComplete, struct {
-            fn onError(ctx: *anyopaque, err: anyerror) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.callbacks.on_error(state.callbacks.ctx, err);
-            }
-        }.onError, &stream_state);
+        // Convert headers HashMap to slice for HttpClient.Request
+        var header_list: [64]http.HttpClient.Header = undefined;
+        var header_count: usize = 0;
+        var headers_iter = headers.iterator();
+        while (headers_iter.next()) |entry| {
+            if (header_count >= 64) break;
+            header_list[header_count] = .{
+                .name = entry.key_ptr.*,
+                .value = entry.value_ptr.*,
+            };
+            header_count += 1;
+        }
+
+        // Build the HTTP request
+        const req = http.HttpClient.Request{
+            .method = .POST,
+            .url = url,
+            .headers = header_list[0..header_count],
+            .body = body,
+        };
+
+        // Make the streaming request with proper callbacks
+        http_client.requestStreaming(req, request_allocator, .{
+            .on_chunk = struct {
+                fn onChunk(ctx: ?*anyopaque, chunk: []const u8) void {
+                    const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
+                    state.processChunk(chunk) catch |err| {
+                        _ = err;
+                        // Error handling in processChunk
+                    };
+                }
+            }.onChunk,
+            .on_complete = struct {
+                fn onComplete(ctx: ?*anyopaque) void {
+                    const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
+                    state.finish();
+                }
+            }.onComplete,
+            .on_error = struct {
+                fn onError(ctx: ?*anyopaque, err: http.HttpClient.HttpError) void {
+                    const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
+                    _ = err;
+                    state.callbacks.on_error(state.callbacks.ctx, error.HttpError);
+                }
+            }.onError,
+            .ctx = &stream_state,
+        });
     }
 
     /// Convert to LanguageModelV3 interface

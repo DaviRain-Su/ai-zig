@@ -380,33 +380,51 @@ pub const OpenAIChatLanguageModel = struct {
             .finish_reason = .unknown,
         };
 
+        // Convert headers HashMap to slice for HttpClient.Request
+        var header_list: [64]provider_utils.HttpHeader = undefined;
+        var header_count: usize = 0;
+        var headers_iter = headers.iterator();
+        while (headers_iter.next()) |entry| {
+            if (header_count >= 64) break;
+            header_list[header_count] = .{
+                .name = entry.key_ptr.*,
+                .value = entry.value_ptr.*,
+            };
+            header_count += 1;
+        }
+
+        const req = provider_utils.HttpRequest{
+            .method = .POST,
+            .url = url,
+            .headers = header_list[0..header_count],
+            .body = body,
+        };
+
         // Make the streaming request
-        http_client.postStream(url, headers, body, request_allocator, struct {
-            fn onChunk(ctx: *anyopaque, chunk: []const u8) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.processChunk(chunk) catch |err| {
-                    state.callbacks.on_error(err, state.callbacks.context);
-                };
-            }
-            fn onComplete(ctx: *anyopaque) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.finish();
-            }
-            fn onError(ctx: *anyopaque, err: anyerror) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.callbacks.on_error(err, state.callbacks.context);
-            }
-        }.onChunk, struct {
-            fn onComplete(ctx: *anyopaque) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.finish();
-            }
-        }.onComplete, struct {
-            fn onError(ctx: *anyopaque, err: anyerror) void {
-                const state = @as(*StreamState, @ptrCast(@alignCast(ctx)));
-                state.callbacks.on_error(err, state.callbacks.context);
-            }
-        }.onError, &stream_state);
+        http_client.requestStreaming(req, request_allocator, .{
+            .on_chunk = struct {
+                fn onChunk(ctx: ?*anyopaque, chunk: []const u8) void {
+                    const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
+                    state.processChunk(chunk) catch |err| {
+                        state.callbacks.on_error(err, state.callbacks.context);
+                    };
+                }
+            }.onChunk,
+            .on_complete = struct {
+                fn onComplete(ctx: ?*anyopaque) void {
+                    const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
+                    state.finish();
+                }
+            }.onComplete,
+            .on_error = struct {
+                fn onError(ctx: ?*anyopaque, err: provider_utils.HttpError) void {
+                    const state = @as(*StreamState, @ptrCast(@alignCast(ctx.?)));
+                    _ = err;
+                    state.callbacks.on_error(error.HttpError, state.callbacks.context);
+                }
+            }.onError,
+            .ctx = &stream_state,
+        });
     }
 
     /// Convert to LanguageModelV3 interface
