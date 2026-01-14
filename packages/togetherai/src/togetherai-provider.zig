@@ -15,6 +15,8 @@ pub const TogetherAIProvider = struct {
     allocator: std.mem.Allocator,
     settings: TogetherAIProviderSettings,
     base_url: []const u8,
+    chat_models: std.ArrayListUnmanaged(openai_compat.OpenAICompatibleChatLanguageModel) = .{},
+    embedding_models: std.ArrayListUnmanaged(openai_compat.OpenAICompatibleEmbeddingModel) = .{},
 
     pub const specification_version = "v3";
 
@@ -27,7 +29,10 @@ pub const TogetherAIProvider = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.chat_models.deinit(self.allocator);
+        self.embedding_models.deinit(self.allocator);
+        self.chat_models = .{};
+        self.embedding_models = .{};
     }
 
     pub fn getProvider(self: *const Self) []const u8 {
@@ -82,14 +87,20 @@ pub const TogetherAIProvider = struct {
 
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
-        var model = self.languageModel(model_id);
-        return .{ .success = model.asLanguageModel() };
+        const slot = self.chat_models.addOne(self.allocator) catch |err| {
+            return .{ .failure = err };
+        };
+        slot.* = self.languageModel(model_id);
+        return .{ .success = slot.asLanguageModel() };
     }
 
     fn embeddingModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
-        var model = self.embeddingModel(model_id);
-        return .{ .success = model.asEmbeddingModel() };
+        const slot = self.embedding_models.addOne(self.allocator) catch |err| {
+            return .{ .failure = err };
+        };
+        slot.* = self.embeddingModel(model_id);
+        return .{ .success = slot.asEmbeddingModel() };
     }
 
     fn imageModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.ImageModelResult {

@@ -15,6 +15,7 @@ pub const HuggingFaceProvider = struct {
     allocator: std.mem.Allocator,
     settings: HuggingFaceProviderSettings,
     base_url: []const u8,
+    models: std.ArrayListUnmanaged(openai_compat.OpenAICompatibleChatLanguageModel) = .{},
 
     pub const specification_version = "v3";
 
@@ -27,7 +28,8 @@ pub const HuggingFaceProvider = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.models.deinit(self.allocator);
+        self.models = .{};
     }
 
     pub fn getProvider(self: *const Self) []const u8 {
@@ -65,8 +67,11 @@ pub const HuggingFaceProvider = struct {
 
     fn languageModelVtable(impl: *anyopaque, model_id: []const u8) provider_v3.LanguageModelResult {
         const self: *Self = @ptrCast(@alignCast(impl));
-        var model = self.languageModel(model_id);
-        return .{ .success = model.asLanguageModel() };
+        const slot = self.models.addOne(self.allocator) catch |err| {
+            return .{ .failure = err };
+        };
+        slot.* = self.languageModel(model_id);
+        return .{ .success = slot.asLanguageModel() };
     }
 
     fn embeddingModelVtable(_: *anyopaque, model_id: []const u8) provider_v3.EmbeddingModelResult {

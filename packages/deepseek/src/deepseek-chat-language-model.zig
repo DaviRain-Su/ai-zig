@@ -236,32 +236,237 @@ pub const DeepSeekChatLanguageModel = struct {
         result_allocator: std.mem.Allocator,
         callbacks: lm.LanguageModelV3.StreamCallbacks,
     ) void {
+        // Check if HTTP client is available
+        const http_client = self.config.http_client orelse {
+            callbacks.on_error(callbacks.ctx, error.NoHttpClient);
+            return;
+        };
+
         var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
         const request_allocator = arena.allocator();
 
+        // Build request body with stream: true
         var request_body = self.buildRequestBody(request_allocator, call_options) catch |err| {
+            arena.deinit();
             callbacks.on_error(callbacks.ctx, err);
             return;
         };
 
         if (request_body == .object) {
             request_body.object.put("stream", .{ .bool = true }) catch |err| {
+                arena.deinit();
                 callbacks.on_error(callbacks.ctx, err);
                 return;
             };
         }
 
-        _ = result_allocator;
+        // Serialize to JSON
+        const body_json = std.json.Stringify.valueAlloc(request_allocator, request_body, .{}) catch |err| {
+            arena.deinit();
+            callbacks.on_error(callbacks.ctx, err);
+            return;
+        };
 
-        callbacks.on_part(callbacks.ctx, .{
-            .finish = .{
-                .finish_reason = .stop,
-                .usage = lm.LanguageModelV3Usage.init(),
-            },
+        // Build URL
+        const url = config_mod.buildChatCompletionsUrl(
+            request_allocator,
+            self.config.base_url,
+        ) catch |err| {
+            arena.deinit();
+            callbacks.on_error(callbacks.ctx, err);
+            return;
+        };
+
+        // Get headers
+        var headers = self.config.getHeaders(request_allocator);
+
+        // Convert headers to slice
+        var header_list: [64]provider_utils.HttpHeader = undefined;
+        var header_count: usize = 0;
+        var headers_iter = headers.iterator();
+        while (headers_iter.next()) |entry| {
+            if (header_count >= 64) break;
+            header_list[header_count] = .{
+                .name = entry.key_ptr.*,
+                .value = entry.value_ptr.*,
+            };
+            header_count += 1;
+        }
+
+        // Build HTTP request
+        const req = provider_utils.HttpRequest{
+            .method = .POST,
+            .url = url,
+            .headers = header_list[0..header_count],
+            .body = body_json,
+        };
+
+        // Create stream state to track progress
+        const StreamState = struct {
+            arena: std.heap.ArenaAllocator,
+            result_allocator: std.mem.Allocator,
+            callbacks: lm.LanguageModelV3.StreamCallbacks,
+            sse_parser: provider_utils.EventSourceParser,
+            is_text_active: bool,
+            finish_reason: lm.LanguageModelV3FinishReason,
+            usage: ?lm.LanguageModelV3Usage,
+
+            fn init(
+                allocator: std.mem.Allocator,
+                ar: std.heap.ArenaAllocator,
+                res_allocator: std.mem.Allocator,
+                cbs: lm.LanguageModelV3.StreamCallbacks,
+            ) @This() {
+                return .{
+                    .arena = ar,
+                    .result_allocator = res_allocator,
+                    .callbacks = cbs,
+                    .sse_parser = provider_utils.EventSourceParser.init(allocator),
+                    .is_text_active = false,
+                    .finish_reason = .unknown,
+                    .usage = null,
+                };
+            }
+
+            fn deinit(state: *@This()) void {
+                state.sse_parser.deinit();
+                state.arena.deinit();
+            }
+
+            fn processChunk(state: *@This(), chunk_data: []const u8) void {
+                state.sse_parser.feed(chunk_data, handleSSEEvent, state) catch {};
+            }
+
+            fn handleSSEEvent(ctx: ?*anyopaque, event: provider_utils.EventSourceParser.Event) void {
+                const state: *@This() = @ptrCast(@alignCast(ctx));
+
+                // Parse the JSON data from SSE
+                const parsed = std.json.parseFromSlice(
+                    DeepSeekStreamChunk,
+                    state.result_allocator,
+                    event.data,
+                    .{ .ignore_unknown_fields = true },
+                ) catch return;
+                defer parsed.deinit(); // Free parsed JSON after processing
+                const chunk = parsed.value;
+
+                // Process choices
+                if (chunk.choices.len == 0) return;
+                const choice = chunk.choices[0];
+
+                // Update finish reason
+                if (choice.finish_reason) |reason| {
+                    state.finish_reason = map_finish.mapDeepSeekFinishReason(reason);
+                }
+
+                // Process delta content
+                if (choice.delta.content) |content| {
+                    if (!state.is_text_active) {
+                        state.callbacks.on_part(state.callbacks.ctx, .{
+                            .text_start = .{ .id = "0" },
+                        });
+                        state.is_text_active = true;
+                    }
+
+                    state.callbacks.on_part(state.callbacks.ctx, .{
+                        .text_delta = .{
+                            .id = "0",
+                            .delta = content,
+                        },
+                    });
+                }
+
+                // Handle usage if present
+                if (chunk.usage) |u| {
+                    state.usage = lm.LanguageModelV3Usage.init();
+                    if (state.usage) |*usage| {
+                        usage.input_tokens = .{ .total = u.prompt_tokens };
+                        usage.output_tokens = .{ .total = u.completion_tokens };
+                    }
+                }
+            }
+
+            fn finish(state: *@This()) void {
+                // End text if active
+                if (state.is_text_active) {
+                    state.callbacks.on_part(state.callbacks.ctx, .{
+                        .text_end = .{ .id = "0" },
+                    });
+                }
+
+                // Emit finish
+                state.callbacks.on_part(state.callbacks.ctx, .{
+                    .finish = .{
+                        .finish_reason = state.finish_reason,
+                        .usage = state.usage orelse lm.LanguageModelV3Usage.init(),
+                    },
+                });
+
+                // Call complete callback
+                state.callbacks.on_complete(state.callbacks.ctx, null);
+
+                // Cleanup
+                state.deinit();
+            }
+
+            fn handleError(state: *@This(), err: provider_utils.HttpError) void {
+                _ = err;
+                state.callbacks.on_error(state.callbacks.ctx, error.HttpError);
+                state.deinit();
+            }
+        };
+
+        const state_ptr = request_allocator.create(StreamState) catch {
+            arena.deinit();
+            callbacks.on_error(callbacks.ctx, error.OutOfMemory);
+            return;
+        };
+        state_ptr.* = StreamState.init(request_allocator, arena, result_allocator, callbacks);
+
+        // Make streaming request
+        http_client.requestStreaming(req, request_allocator, .{
+            .on_chunk = struct {
+                fn onChunk(ctx: ?*anyopaque, chunk: []const u8) void {
+                    const state: *StreamState = @ptrCast(@alignCast(ctx.?));
+                    state.processChunk(chunk);
+                }
+            }.onChunk,
+            .on_complete = struct {
+                fn onComplete(ctx: ?*anyopaque) void {
+                    const state: *StreamState = @ptrCast(@alignCast(ctx.?));
+                    state.finish();
+                }
+            }.onComplete,
+            .on_error = struct {
+                fn onError(ctx: ?*anyopaque, err: provider_utils.HttpError) void {
+                    const state: *StreamState = @ptrCast(@alignCast(ctx.?));
+                    state.handleError(err);
+                }
+            }.onError,
+            .ctx = state_ptr,
         });
-        callbacks.on_complete(callbacks.ctx, null);
     }
+
+    /// DeepSeek streaming chunk structure (OpenAI-compatible)
+    const DeepSeekStreamChunk = struct {
+        id: []const u8 = "",
+        object: []const u8 = "",
+        created: i64 = 0,
+        model: []const u8 = "",
+        choices: []const DeepSeekStreamChoice = &[_]DeepSeekStreamChoice{},
+        usage: ?DeepSeekUsage = null,
+    };
+
+    const DeepSeekStreamChoice = struct {
+        index: u32 = 0,
+        delta: DeepSeekDelta = .{},
+        finish_reason: ?[]const u8 = null,
+    };
+
+    const DeepSeekDelta = struct {
+        role: ?[]const u8 = null,
+        content: ?[]const u8 = null,
+    };
 
     /// Build the request body (OpenAI format)
     fn buildRequestBody(

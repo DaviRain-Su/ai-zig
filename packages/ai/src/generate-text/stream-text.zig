@@ -262,21 +262,120 @@ pub fn streamText(
     const result = allocator.create(StreamTextResult) catch return StreamTextError.OutOfMemory;
     result.* = StreamTextResult.init(allocator, options);
 
-    // TODO: Start actual streaming
-    // For now, emit a placeholder finish event
-    const finish_part = StreamPart{
-        .finish = .{
-            .finish_reason = .stop,
-            .usage = .{},
-            .total_usage = .{},
-        },
+    // Build prompt for the language model
+    var prompt_messages = std.ArrayList(provider_types.LanguageModelV3Message).initCapacity(allocator, 4) catch return StreamTextError.OutOfMemory;
+
+    // Add system message if present
+    if (options.system) |sys| {
+        prompt_messages.append(allocator, .{
+            .role = .system,
+            .content = .{ .system = sys },
+        }) catch return StreamTextError.OutOfMemory;
+    }
+
+    // Add user message from prompt
+    if (options.prompt) |p| {
+        const user_msg = provider_types.language_model.userTextMessage(allocator, p) catch return StreamTextError.OutOfMemory;
+        prompt_messages.append(allocator, user_msg) catch return StreamTextError.OutOfMemory;
+    }
+
+    // Build call options
+    const temp_f32: ?f32 = if (options.settings.temperature) |t| @floatCast(t) else null;
+    const top_p_f32: ?f32 = if (options.settings.top_p) |t| @floatCast(t) else null;
+
+    const call_options = provider_types.LanguageModelV3CallOptions{
+        .prompt = prompt_messages.items,
+        .max_output_tokens = options.settings.max_output_tokens,
+        .temperature = temp_f32,
+        .top_p = top_p_f32,
+        .top_k = options.settings.top_k,
+        .stop_sequences = options.settings.stop_sequences,
     };
 
-    result.processPart(finish_part) catch return StreamTextError.OutOfMemory;
-    options.callbacks.on_part(finish_part, options.callbacks.context);
-    options.callbacks.on_complete(options.callbacks.context);
+    // Create a wrapper context that bridges model callbacks to user callbacks
+    const StreamContext = struct {
+        result: *StreamTextResult,
+        user_callbacks: StreamCallbacks,
+        total_usage: LanguageModelUsage,
+
+        fn onPart(ctx: ?*anyopaque, part: provider_types.LanguageModelV3StreamPart) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+
+            // Convert provider stream part to our stream part
+            const user_part: ?StreamPart = switch (part) {
+                .text_delta => |d| .{ .text_delta = .{ .text = d.delta } },
+                .text_start => null, // No equivalent
+                .text_end => null, // No equivalent
+                .finish => |f| blk: {
+                    self.total_usage = self.total_usage.add(.{
+                        .input_tokens = f.usage.input_tokens.total,
+                        .output_tokens = f.usage.output_tokens.total,
+                    });
+                    break :blk .{
+                        .finish = .{
+                            .finish_reason = mapFinishReason(f.finish_reason),
+                            .usage = .{
+                                .input_tokens = f.usage.input_tokens.total,
+                                .output_tokens = f.usage.output_tokens.total,
+                            },
+                            .total_usage = self.total_usage,
+                        },
+                    };
+                },
+                else => null,
+            };
+
+            if (user_part) |up| {
+                self.result.processPart(up) catch {};
+                self.user_callbacks.on_part(up, self.user_callbacks.context);
+            }
+        }
+
+        fn onError(ctx: ?*anyopaque, err: anyerror) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.user_callbacks.on_error(err, self.user_callbacks.context);
+        }
+
+        fn onComplete(ctx: ?*anyopaque, _: ?provider_types.LanguageModelV3.StreamCompleteInfo) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.result.is_complete = true;
+            self.user_callbacks.on_complete(self.user_callbacks.context);
+        }
+    };
+
+    const stream_ctx = allocator.create(StreamContext) catch return StreamTextError.OutOfMemory;
+    stream_ctx.* = .{
+        .result = result,
+        .user_callbacks = options.callbacks,
+        .total_usage = .{},
+    };
+
+    // Call the model's doStream method
+    options.model.doStream(
+        call_options,
+        allocator,
+        .{
+            .on_part = StreamContext.onPart,
+            .on_error = StreamContext.onError,
+            .on_complete = StreamContext.onComplete,
+            .ctx = stream_ctx,
+        },
+    );
 
     return result;
+}
+
+/// Map provider finish reason to our finish reason
+fn mapFinishReason(reason: provider_types.LanguageModelV3FinishReason) FinishReason {
+    return switch (reason) {
+        .stop => .stop,
+        .length => .length,
+        .tool_calls => .tool_calls,
+        .content_filter => .content_filter,
+        .@"error" => .other,
+        .other => .other,
+        .unknown => .unknown,
+    };
 }
 
 /// Helper to convert streaming result to non-streaming result
