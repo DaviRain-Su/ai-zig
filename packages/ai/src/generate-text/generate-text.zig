@@ -251,6 +251,12 @@ pub fn generateText(
     // Build prompt for the language model
     var prompt_messages: std.ArrayList(provider_types.LanguageModelV3Message) = .empty;
     defer prompt_messages.deinit(allocator);
+    var user_parts_to_free: ?[]const provider_types.language_model.language_model_v3_prompt.UserPart = null;
+    defer {
+        if (user_parts_to_free) |parts| {
+            allocator.free(@constCast(parts));
+        }
+    }
 
     // Add system message if present
     if (options.system) |sys| {
@@ -262,7 +268,9 @@ pub fn generateText(
 
     // Add user message from prompt
     if (options.prompt) |p| {
-        try prompt_messages.append(allocator, try provider_types.language_model.userTextMessage(allocator, p));
+        const user_message = try provider_types.language_model.userTextMessage(allocator, p);
+        user_parts_to_free = user_message.content.user;
+        try prompt_messages.append(allocator, user_message);
     }
 
     // Build call options - temperature needs to be f32
@@ -325,6 +333,14 @@ pub fn generateText(
             else
                 try allocator.dupe(u8, "");
 
+            for (success.content) |content| {
+                var owned_content = content;
+                owned_content.deinit(allocator);
+            }
+            if (success.content.len > 0) {
+                allocator.free(@constCast(success.content));
+            }
+
             // Map finish reason
             const finish_reason: FinishReason = switch (success.finish_reason) {
                 .stop => .stop,
@@ -360,8 +376,14 @@ pub fn generateText(
                 .warnings = null,
             };
         },
-        .failure => {
-            return GenerateTextError.ModelError;
+        .failure => |err| {
+            return switch (err) {
+                error.HttpError => GenerateTextError.NetworkError,
+                error.OutOfMemory => GenerateTextError.OutOfMemory,
+                error.InvalidResponse => GenerateTextError.ModelError,
+                error.EmptyResponse => GenerateTextError.ModelError,
+                else => GenerateTextError.ModelError,
+            };
         },
     }
 }

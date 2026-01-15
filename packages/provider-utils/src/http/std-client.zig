@@ -59,16 +59,16 @@ pub const StdHttpClient = struct {
         on_error: *const fn (ctx: ?*anyopaque, err: client_mod.HttpClient.HttpError) void,
         ctx: ?*anyopaque,
     ) !void {
-        _ = self;
         _ = on_error;
+        _ = allocator;
 
         // Parse URI
         const uri = std.Uri.parse(req.url) catch {
             return error.InvalidUrl;
         };
 
-        // Create HTTP client
-        var http_client: std.http.Client = .{ .allocator = allocator };
+        // Create HTTP client with a stable allocator for TLS/cert cache
+        var http_client: std.http.Client = .{ .allocator = self.allocator };
         defer http_client.deinit();
 
         // Build extra headers for Zig 0.15 API
@@ -119,10 +119,20 @@ pub const StdHttpClient = struct {
         var redirect_buf: [4096]u8 = undefined;
         var response = http_req.receiveHead(&redirect_buf) catch |err| return err;
 
-        // Read response body
-        var transfer_buf: [16384]u8 = undefined;
+        // Read response body (manual loop avoids allocator-owned writer leaks)
+        var transfer_buf: [8192]u8 = undefined;
         const body_reader = response.reader(&transfer_buf);
-        const body = body_reader.allocRemaining(allocator, std.Io.Limit.limited(10 * 1024 * 1024)) catch |err| return err;
+        var body_list: std.ArrayListUnmanaged(u8) = .{};
+        defer body_list.deinit(self.allocator);
+        var total_read: usize = 0;
+        while (true) {
+            var chunk_buf: [8192]u8 = undefined;
+            const bytes_read = body_reader.readSliceShort(&chunk_buf) catch |err| return err;
+            if (bytes_read == 0) break;
+            total_read += bytes_read;
+            if (total_read > 10 * 1024 * 1024) return error.ResponseTooLarge;
+            try body_list.appendSlice(self.allocator, chunk_buf[0..bytes_read]);
+        }
 
         // Convert headers - just use empty since we can't easily iterate in Zig 0.15
         const response_headers: []const client_mod.HttpClient.Header = &[_]client_mod.HttpClient.Header{};
@@ -131,7 +141,7 @@ pub const StdHttpClient = struct {
         on_response(ctx, .{
             .status_code = @intFromEnum(response.head.status),
             .headers = response_headers,
-            .body = body,
+            .body = body_list.items,
         });
     }
 
@@ -156,15 +166,15 @@ pub const StdHttpClient = struct {
         allocator: std.mem.Allocator,
         callbacks: client_mod.HttpClient.StreamCallbacks,
     ) !void {
-        _ = self;
+        _ = allocator;
 
         // Parse URI
         const uri = std.Uri.parse(req.url) catch {
             return error.InvalidUrl;
         };
 
-        // Create HTTP client
-        var http_client: std.http.Client = .{ .allocator = allocator };
+        // Create HTTP client with a stable allocator for TLS/cert cache
+        var http_client: std.http.Client = .{ .allocator = self.allocator };
         defer http_client.deinit();
 
         // Build extra headers for Zig 0.15 API

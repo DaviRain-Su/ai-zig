@@ -265,6 +265,9 @@ pub fn streamText(
     // Build prompt for the language model
     var prompt_messages = std.ArrayList(provider_types.LanguageModelV3Message).initCapacity(allocator, 4) catch return StreamTextError.OutOfMemory;
 
+    // Track user message parts for cleanup
+    var user_parts_to_free: ?[]const provider_types.language_model.language_model_v3_prompt.UserPart = null;
+
     // Add system message if present
     if (options.system) |sys| {
         prompt_messages.append(allocator, .{
@@ -276,6 +279,7 @@ pub fn streamText(
     // Add user message from prompt
     if (options.prompt) |p| {
         const user_msg = provider_types.language_model.userTextMessage(allocator, p) catch return StreamTextError.OutOfMemory;
+        user_parts_to_free = user_msg.content.user;
         prompt_messages.append(allocator, user_msg) catch return StreamTextError.OutOfMemory;
     }
 
@@ -343,14 +347,13 @@ pub fn streamText(
         }
     };
 
-    const stream_ctx = allocator.create(StreamContext) catch return StreamTextError.OutOfMemory;
-    stream_ctx.* = .{
+    var stream_ctx = StreamContext{
         .result = result,
         .user_callbacks = options.callbacks,
         .total_usage = .{},
     };
 
-    // Call the model's doStream method
+    // Call the model's doStream method (synchronous in our implementation)
     options.model.doStream(
         call_options,
         allocator,
@@ -358,9 +361,15 @@ pub fn streamText(
             .on_part = StreamContext.onPart,
             .on_error = StreamContext.onError,
             .on_complete = StreamContext.onComplete,
-            .ctx = stream_ctx,
+            .ctx = &stream_ctx,
         },
     );
+
+    // Cleanup after streaming completes (doStream is synchronous)
+    prompt_messages.deinit(allocator);
+    if (user_parts_to_free) |parts| {
+        allocator.free(@constCast(parts));
+    }
 
     return result;
 }
