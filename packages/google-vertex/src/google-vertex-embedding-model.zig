@@ -1,6 +1,6 @@
 const std = @import("std");
-const embedding = @import("../../provider/src/embedding-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const embedding = @import("provider").embedding_model.v3;
+const shared = @import("provider").shared.v3;
 
 const config_mod = @import("google-vertex-config.zig");
 const options_mod = @import("google-vertex-options.zig");
