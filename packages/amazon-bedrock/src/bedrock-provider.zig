@@ -1,6 +1,6 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const provider_v3 = @import("provider").provider.v3;
+const lm = @import("provider").language_model.v3;
 
 const config_mod = @import("bedrock-config.zig");
 const chat_model = @import("bedrock-chat-language-model.zig");

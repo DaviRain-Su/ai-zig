@@ -1,5 +1,5 @@
 const std = @import("std");
-const provider_v3 = @import("../../provider/src/provider/v3/index.zig");
+const provider_v3 = @import("provider").provider.v3;
 
 pub const BlackForestLabsProviderSettings = struct {
     base_url: ?[]const u8 = null,

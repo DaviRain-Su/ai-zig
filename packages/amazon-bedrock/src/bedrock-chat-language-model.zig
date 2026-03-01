@@ -1,6 +1,6 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
-const shared = @import("../../provider/src/shared/v3/index.zig");
+const lm = @import("provider").language_model.v3;
+const shared = @import("provider").shared.v3;
 
 const config_mod = @import("bedrock-config.zig");
 const options_mod = @import("bedrock-options.zig");

@@ -1,5 +1,5 @@
 const std = @import("std");
-const lm = @import("../../provider/src/language-model/v3/index.zig");
+const lm = @import("provider").language_model.v3;
 const options = @import("bedrock-options.zig");
 
 /// Map Bedrock stop reason to language model finish reason

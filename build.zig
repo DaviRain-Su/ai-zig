@@ -65,6 +65,7 @@ pub fn build(b: *std.Build) void {
     });
     google_vertex_mod.addImport("provider", provider_mod);
     google_vertex_mod.addImport("provider-utils", provider_utils_mod);
+    google_vertex_mod.addImport("google", google_mod);
 
     // Azure provider
     const azure_mod = b.addModule("azure", .{
